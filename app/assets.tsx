@@ -42,6 +42,7 @@ export default function AssetsScreen() {
   } | null>(null);
 
   const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [transferStatus, setTransferStatus] = useState<{
     success?: boolean;
     message?: string;
@@ -80,6 +81,7 @@ export default function AssetsScreen() {
 
   const pickImageOrVideo = async (mediaType: "images" | "videos") => {
     setTransferStatus(null);
+    setUploadProgress(null);
     try {
       if (Platform.OS !== "web") {
         const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -99,94 +101,84 @@ export default function AssetsScreen() {
         base64: true,
       });
 
-      if (result.canceled || !result.assets || result.assets.length === 0) {
-        return;
-      }
-
+      if (result.canceled || !result.assets || result.assets.length === 0) return;
       const asset = result.assets[0];
+      const filename = asset.fileName || (mediaType === "images" ? `image_${Date.now()}.jpg` : `video_${Date.now()}.mp4`);
       const fileSize = asset.fileSize || 0;
 
       if (fileSize > MAX_BYTES) {
-        Alert.alert("File Too Large", "Maximum supported file size is 50MB.");
+        Alert.alert("File Too Large", "Maximum allowed size is 50MB.");
         return;
       }
 
-      let dataBase64 = "";
-      if (asset.base64) {
-        const mime = asset.mimeType || (mediaType === "images" ? "image/jpeg" : "video/mp4");
-        dataBase64 = `data:${mime};base64,${asset.base64}`;
-      } else {
+      let dataBase64 = asset.base64 ? `data:${asset.mimeType || (mediaType === "images" ? "image/jpeg" : "video/mp4")};base64,${asset.base64}` : "";
+      if (!dataBase64) {
         dataBase64 = await readUriToBase64(asset.uri, asset.mimeType);
       }
 
-      const fileName = asset.fileName || (mediaType === "images" ? "photo.jpg" : "video.mp4");
-      const detectedType = mediaType === "images" ? "image" : "video";
-
       setSelectedFile({
-        name: fileName,
-        size: fileSize || Math.round(dataBase64.length * 0.75),
-        type: detectedType,
+        name: filename,
+        size: fileSize,
+        type: mediaType === "images" ? "image" : "video",
         mimeType: asset.mimeType || (mediaType === "images" ? "image/jpeg" : "video/mp4"),
         dataBase64,
-        previewUri: detectedType === "image" ? asset.uri : undefined,
+        previewUri: mediaType === "images" ? asset.uri : undefined,
       });
     } catch (err: any) {
       console.error("ImagePicker error:", err);
-      Alert.alert("Picker Error", err.message || "Failed to open media picker.");
+      Alert.alert("Picker Error", err.message || "Failed to pick media.");
     }
   };
 
-  const pickDocument = async (targetCategory: "audio" | "presentation" | "all") => {
+  const pickDocument = async (category: "audio" | "presentation" | "all") => {
     setTransferStatus(null);
+    setUploadProgress(null);
     try {
-      let mimeTypes: string[] = ["*/*"];
-      if (targetCategory === "audio") {
-        mimeTypes = ["audio/*", "audio/mpeg", "audio/wav", "audio/aac", "audio/mp4", "audio/m4a", "audio/x-m4a"];
-      } else if (targetCategory === "presentation") {
-        mimeTypes = [
+      let typeFilter: string[] = ["*/*"];
+      if (category === "presentation") {
+        typeFilter = [
           "application/vnd.openxmlformats-officedocument.presentationml.presentation",
           "application/vnd.ms-powerpoint",
           "application/pdf",
-          "*/*",
         ];
+      } else if (category === "audio") {
+        typeFilter = ["audio/*", "audio/mpeg", "audio/wav", "audio/aac", "audio/m4a", "audio/ogg", "audio/flac"];
       }
 
       const result = await DocumentPicker.getDocumentAsync({
-        type: mimeTypes,
+        type: typeFilter,
         copyToCacheDirectory: true,
+        multiple: false,
       });
 
-      if (result.canceled || !result.assets || result.assets.length === 0) {
-        return;
-      }
-
+      if (result.canceled || !result.assets || result.assets.length === 0) return;
       const asset = result.assets[0];
       const fileSize = asset.size || 0;
 
       if (fileSize > MAX_BYTES) {
-        Alert.alert("File Too Large", "Maximum supported file size is 50MB.");
+        Alert.alert("File Too Large", "Maximum allowed size is 50MB.");
         return;
       }
 
+      const filename = asset.name || `file_${Date.now()}`;
       const dataBase64 = await readUriToBase64(asset.uri, asset.mimeType);
 
+      // Detect type
       let detectedType: "image" | "video" | "audio" | "presentation" | "media" = "media";
-      const lowerName = (asset.name || "").toLowerCase();
-      const mime = asset.mimeType || "";
-
-      if (lowerName.endsWith(".pptx") || lowerName.endsWith(".ppt") || mime.includes("presentation")) {
+      const ext = filename.toLowerCase();
+      if (category === "presentation" || ext.endsWith(".pptx") || ext.endsWith(".ppt")) {
         detectedType = "presentation";
-      } else if (targetCategory === "audio" || mime.startsWith("audio/") || /\.(mp3|wav|m4a|aac|ogg|flac)$/i.test(lowerName)) {
+      } else if (category === "audio" || /\.(mp3|wav|m4a|aac|ogg|flac)$/i.test(ext)) {
         detectedType = "audio";
-      } else if (mime.startsWith("image/") || /\.(png|jpe?g|webp|gif|svg|bmp)$/i.test(lowerName)) {
+      } else if (/\.(png|jpe?g|webp|gif|svg)$/i.test(ext)) {
         detectedType = "image";
-      } else if (mime.startsWith("video/") || /\.(mp4|mov|webm|mkv|avi)$/i.test(lowerName)) {
+      } else if (/\.(mp4|webm|mov|mkv)$/i.test(ext)) {
         detectedType = "video";
       }
 
       setSelectedFile({
-        name: asset.name,
-        size: fileSize || Math.round(dataBase64.length * 0.75),
+        name: filename,
+        size: fileSize,
         type: detectedType,
         mimeType: asset.mimeType || "application/octet-stream",
         dataBase64,
@@ -209,7 +201,16 @@ export default function AssetsScreen() {
     }
 
     setUploading(true);
+    setUploadProgress(15);
     setTransferStatus(null);
+
+    const progTimer = setInterval(() => {
+      setUploadProgress((prev) => {
+        if (!prev) return 25;
+        if (prev < 85) return prev + 15;
+        return prev;
+      });
+    }, 250);
 
     try {
       const res = await sendAsset({
@@ -219,6 +220,9 @@ export default function AssetsScreen() {
         mimeType: selectedFile.mimeType,
         dataBase64: selectedFile.dataBase64,
       });
+
+      clearInterval(progTimer);
+      setUploadProgress(100);
 
       if (res.ok) {
         setTransferStatus({
@@ -233,12 +237,14 @@ export default function AssetsScreen() {
         });
       }
     } catch (err: any) {
+      clearInterval(progTimer);
       setTransferStatus({
         success: false,
         message: err.message || "Transfer error.",
       });
     } finally {
       setUploading(false);
+      setTimeout(() => setUploadProgress(null), 1500);
     }
   };
 
@@ -411,6 +417,24 @@ export default function AssetsScreen() {
         )}
 
         {/* Action Button */}
+        {/* Upload Progress Bar */}
+        {uploadProgress !== null && (
+          <View className="w-full bg-white/5 border border-blue-500/30 rounded-2xl p-4 mb-4">
+            <View className="flex-row justify-between items-center mb-2">
+              <Text className="text-blue-400 font-bold text-xs">
+                {uploadProgress < 100 ? "Uploading & Transferring to Controller…" : "Awaiting Operator Review…"}
+              </Text>
+              <Text className="text-white font-mono font-bold text-xs">{uploadProgress}%</Text>
+            </View>
+            <View className="w-full h-2.5 bg-white/10 rounded-full overflow-hidden">
+              <View
+                style={{ width: `${uploadProgress}%` }}
+                className="h-full bg-blue-500 rounded-full"
+              />
+            </View>
+          </View>
+        )}
+
         {selectedFile && (
           <TouchableOpacity
             onPress={handleSend}
@@ -426,7 +450,7 @@ export default function AssetsScreen() {
               <FileArrowUp size={20} color="white" weight="bold" />
             )}
             <Text className="text-white font-bold text-base">
-              {uploading ? "Awaiting Operator Acceptance…" : "Send to Desktop Controller"}
+              {uploading ? "Transferring File…" : "Send to Desktop Controller"}
             </Text>
           </TouchableOpacity>
         )}
