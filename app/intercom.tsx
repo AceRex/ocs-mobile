@@ -288,34 +288,36 @@ export default function IntercomScreen() {
   };
 
   return (
-    <SafeAreaView className="flex-1 bg-[#121212]">
+    <SafeAreaView style={styles.container}>
       {/* Header */}
-      <View className="flex-row items-center justify-between p-4 border-b border-white/10">
-        <TouchableOpacity onPress={() => router.back()} className="p-1">
+      <View style={styles.header}>
+        <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
           <ArrowLeft size={24} color="white" />
         </TouchableOpacity>
-        <View className="items-center">
-          <Text className="text-white text-lg font-bold">Intercom & Voice</Text>
-          <Text className="text-white/40 text-xs">Multi-Mode Audio Hub</Text>
+        <View style={styles.headerCenter}>
+          <Text style={styles.headerTitle}>Intercom & Voice</Text>
+          <Text style={styles.headerSubtitle}>Multi-Mode Audio Hub</Text>
         </View>
         <View
-          className={`px-2.5 py-1 rounded-full flex-row items-center gap-1.5 border ${
-            isPaired
-              ? "bg-green-500/10 border-green-500/30"
-              : isConnected
-              ? "bg-amber-500/10 border-amber-500/30"
-              : "bg-white/5 border-white/10"
-          }`}
+          style={[
+            styles.statusBadge,
+            {
+              backgroundColor: isPaired ? "rgba(34, 197, 94, 0.15)" : isConnected ? "rgba(245, 158, 11, 0.15)" : "rgba(255, 255, 255, 0.05)",
+              borderColor: isPaired ? "rgba(34, 197, 94, 0.3)" : isConnected ? "rgba(245, 158, 11, 0.3)" : "rgba(255, 255, 255, 0.1)",
+            },
+          ]}
         >
           <View
-            className={`w-1.5 h-1.5 rounded-full ${
-              isPaired ? "bg-green-400" : isConnected ? "bg-amber-400" : "bg-white/30"
-            }`}
+            style={[
+              styles.statusDot,
+              { backgroundColor: isPaired ? "#4ade80" : isConnected ? "#fbbf24" : "rgba(255,255,255,0.3)" },
+            ]}
           />
           <Text
-            className={`text-[10px] font-bold ${
-              isPaired ? "text-green-400" : isConnected ? "text-amber-400" : "text-white/40"
-            }`}
+            style={[
+              styles.statusText,
+              { color: isPaired ? "#4ade80" : isConnected ? "#fbbf24" : "rgba(255,255,255,0.4)" },
+            ]}
           >
             {isPaired ? "Paired" : isConnected ? "Connecting" : "Offline"}
           </Text>
@@ -323,19 +325,20 @@ export default function IntercomScreen() {
       </View>
 
       {/* Mode Segmented Selector */}
-      <View className="flex-row p-1.5 bg-white/5 mx-4 my-3 rounded-2xl border border-white/10">
+      <View style={styles.modeSelector}>
         <TouchableOpacity
           onPress={() => {
             setActiveMode("peers");
             setTranscriptResult(null);
             setErrorMessage(null);
           }}
-          className={`flex-1 py-2.5 rounded-xl flex-row items-center justify-center gap-1.5 ${
-            activeMode === "peers" ? "bg-purple-600 shadow-md shadow-purple-600/30" : ""
-          }`}
+          style={[
+            styles.modeButton,
+            activeMode === "peers" && styles.modeButtonActivePurple,
+          ]}
         >
           <Users size={16} color={activeMode === "peers" ? "white" : "#9ca3af"} weight="bold" />
-          <Text className={`text-xs font-bold ${activeMode === "peers" ? "text-white" : "text-white/60"}`}>
+          <Text style={[styles.modeText, activeMode === "peers" ? styles.modeTextActive : null]}>
             1. Other Users
           </Text>
         </TouchableOpacity>
@@ -346,12 +349,13 @@ export default function IntercomScreen() {
             setTranscriptResult(null);
             setErrorMessage(null);
           }}
-          className={`flex-1 py-2.5 rounded-xl flex-row items-center justify-center gap-1.5 ${
-            activeMode === "controller" ? "bg-blue-600 shadow-md shadow-blue-600/30" : ""
-          }`}
+          style={[
+            styles.modeButton,
+            activeMode === "controller" && styles.modeButtonActiveBlue,
+          ]}
         >
           <Sparkle size={16} color={activeMode === "controller" ? "white" : "#9ca3af"} weight="bold" />
-          <Text className={`text-xs font-bold ${activeMode === "controller" ? "text-white" : "text-white/60"}`}>
+          <Text style={[styles.modeText, activeMode === "controller" ? styles.modeTextActive : null]}>
             2. Controller
           </Text>
         </TouchableOpacity>
@@ -362,82 +366,74 @@ export default function IntercomScreen() {
             setTranscriptResult(null);
             setErrorMessage(null);
           }}
-          className={`flex-1 py-2.5 rounded-xl flex-row items-center justify-center gap-1.5 ${
-            activeMode === "mic" ? "bg-emerald-600 shadow-md shadow-emerald-600/30" : ""
-          }`}
+          style={[
+            styles.modeButton,
+            activeMode === "mic" && styles.modeButtonActiveEmerald,
+          ]}
         >
           <Broadcast size={16} color={activeMode === "mic" ? "white" : "#9ca3af"} weight="bold" />
-          <Text className={`text-xs font-bold ${activeMode === "mic" ? "text-white" : "text-white/60"}`}>
+          <Text style={[styles.modeText, activeMode === "mic" ? styles.modeTextActive : null]}>
             3. Work as Mic
           </Text>
         </TouchableOpacity>
       </View>
 
-      <ScrollView contentContainerStyle={{ padding: 20, alignItems: "center" }} className="flex-1">
+      <ScrollView contentContainerStyle={styles.scrollContent} style={styles.scrollView}>
         {/* Incoming Intercom Message Notification */}
         {incomingIntercom && (
-          <View className="w-full bg-purple-600/20 border border-purple-500/40 rounded-2xl p-4 mb-4 flex-row items-center justify-between">
-            <View className="flex-row items-center gap-3 flex-1">
+          <View style={styles.incomingCard}>
+            <View style={styles.incomingLeft}>
               <Waveform size={24} color="#C084FC" weight="duotone" />
-              <View className="flex-1">
-                <Text className="text-purple-300 text-xs font-bold uppercase tracking-wider">
-                  Incoming Voice Message
-                </Text>
-                <Text className="text-white font-bold text-sm">From: {incomingIntercom.fromName}</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.incomingTag}>Incoming Voice Message</Text>
+                <Text style={styles.incomingSender}>From: {incomingIntercom.fromName}</Text>
               </View>
             </View>
-            <TouchableOpacity
-              onPress={clearIncomingIntercom}
-              className="bg-white/10 px-3 py-1.5 rounded-lg"
-            >
-              <Text className="text-white text-xs font-semibold">Dismiss</Text>
+            <TouchableOpacity onPress={clearIncomingIntercom} style={styles.dismissButton}>
+              <Text style={styles.dismissText}>Dismiss</Text>
             </TouchableOpacity>
           </View>
         )}
 
         {/* ── Category 1: Speak to Other Users ── */}
         {activeMode === "peers" && (
-          <View className="w-full mb-4">
-            <View className="bg-white/5 border border-white/10 rounded-2xl p-4 mb-4">
-              <Text className="text-white font-bold text-sm mb-1 flex-row items-center gap-1.5">
-                👥 Select Destination
-              </Text>
-              <Text className="text-white/50 text-xs mb-3 leading-relaxed">
+          <View style={styles.fullWidth}>
+            <View style={styles.card}>
+              <Text style={styles.cardTitle}>👥 Select Destination</Text>
+              <Text style={styles.cardSubtitle}>
                 Choose to broadcast your voice to all connected team members, or tap a specific device.
               </Text>
 
               {/* Target Pills */}
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} className="flex-row gap-2">
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.pillContainer}>
                 <TouchableOpacity
                   onPress={() => setSelectedTargetPeer("all")}
-                  className={`px-4 py-2 rounded-xl flex-row items-center gap-2 border ${
-                    selectedTargetPeer === "all"
-                      ? "bg-purple-600 border-purple-400"
-                      : "bg-white/5 border-white/10"
-                  }`}
+                  style={[
+                    styles.peerPill,
+                    selectedTargetPeer === "all" ? styles.peerPillActive : styles.peerPillInactive,
+                  ]}
                 >
                   <Users size={16} color="white" weight="bold" />
-                  <Text className="text-white font-bold text-xs">Speak to All</Text>
+                  <Text style={styles.peerPillText}>Speak to All</Text>
                 </TouchableOpacity>
 
                 {peers.map((peer) => (
                   <TouchableOpacity
                     key={peer.id}
                     onPress={() => setSelectedTargetPeer(peer.id)}
-                    className={`px-3.5 py-2 rounded-xl flex-row items-center gap-2 border ${
-                      selectedTargetPeer === peer.id
-                        ? "bg-purple-600 border-purple-400"
-                        : "bg-white/5 border-white/10"
-                    }`}
+                    style={[
+                      styles.peerPill,
+                      selectedTargetPeer === peer.id ? styles.peerPillActive : styles.peerPillInactive,
+                    ]}
                   >
                     <DeviceMobile size={15} color="white" weight="bold" />
-                    <Text className="text-white text-xs font-semibold">{peer.name}</Text>
+                    <Text style={styles.peerPillText}>{peer.name}</Text>
                   </TouchableOpacity>
                 ))}
 
                 {peers.length === 0 && (
-                  <View className="px-3 py-2">
-                    <Text className="text-white/30 text-xs italic">No other companions online</Text>
+                  <View style={{ paddingVertical: 8, paddingHorizontal: 12 }}>
+                    <Text style={styles.emptyPeersText}>No other companions online</Text>
                   </View>
                 )}
               </ScrollView>
@@ -447,26 +443,26 @@ export default function IntercomScreen() {
 
         {/* ── Category 2: Speak to Controller ── */}
         {activeMode === "controller" && (
-          <View className="w-full bg-white/5 border border-white/10 rounded-2xl p-4 mb-4">
-            <View className="flex-row items-center gap-2 mb-1">
+          <View style={styles.card}>
+            <View style={styles.cardHeaderRow}>
               <Sparkle size={18} color="#60A5FA" weight="duotone" />
-              <Text className="text-white/90 font-bold text-sm">Controller Voice Prompts</Text>
+              <Text style={styles.cardTitle}>Controller Voice Prompts</Text>
             </View>
-            <Text className="text-white/50 text-xs leading-relaxed">
+            <Text style={styles.cardSubtitle}>
               Hold the button and speak. Desktop popup will notify the operator and execute:
             </Text>
-            <View className="flex-row flex-wrap gap-2 mt-2.5">
-              <View className="bg-blue-500/10 border border-blue-500/20 px-2.5 py-1 rounded-lg">
-                <Text className="text-blue-300 text-[11px] font-semibold">📖 "John 3:16"</Text>
+            <View style={styles.tagsWrap}>
+              <View style={styles.blueTag}>
+                <Text style={styles.blueTagText}>📖 "John 3:16"</Text>
               </View>
-              <View className="bg-amber-500/10 border border-amber-500/20 px-2.5 py-1 rounded-lg">
-                <Text className="text-amber-300 text-[11px] font-semibold">⏱️ "Set timer 30 mins"</Text>
+              <View style={styles.amberTag}>
+                <Text style={styles.amberTagText}>⏱️ "Set timer 30 mins"</Text>
               </View>
-              <View className="bg-purple-500/10 border border-purple-500/20 px-2.5 py-1 rounded-lg">
-                <Text className="text-purple-300 text-[11px] font-semibold">📑 "Next slide"</Text>
+              <View style={styles.purpleTag}>
+                <Text style={styles.purpleTagText}>📑 "Next slide"</Text>
               </View>
-              <View className="bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-1 rounded-lg">
-                <Text className="text-emerald-300 text-[11px] font-semibold">🎬 "Next page"</Text>
+              <View style={styles.emeraldTag}>
+                <Text style={styles.emeraldTagText}>🎬 "Next page"</Text>
               </View>
             </View>
           </View>
@@ -474,29 +470,32 @@ export default function IntercomScreen() {
 
         {/* ── Category 3: Work as Mic (Wireless Mic) ── */}
         {activeMode === "mic" && (
-          <View className="w-full bg-white/5 border border-white/10 rounded-2xl p-4 mb-4 items-center">
-            <View className="flex-row items-center gap-2 mb-1 self-start">
+          <View style={[styles.card, { alignItems: "center" }]}>
+            <View style={[styles.cardHeaderRow, { alignSelf: "flex-start" }]}>
               <Broadcast size={18} color="#34D399" weight="duotone" />
-              <Text className="text-white/90 font-bold text-sm">Live Wireless Microphone</Text>
+              <Text style={styles.cardTitle}>Live Wireless Microphone</Text>
             </View>
-            <Text className="text-white/50 text-xs leading-relaxed self-start mb-4">
+            <Text style={[styles.cardSubtitle, { alignSelf: "flex-start", marginBottom: 16 }]}>
               Turn your mobile phone into an active stage or pulpit wireless mic for the desktop system.
             </Text>
 
             {/* Live VU Meter */}
-            <View className="w-full bg-black/40 border border-white/10 rounded-xl p-3 mb-4">
-              <View className="flex-row justify-between items-center mb-1.5">
-                <Text className="text-white/50 text-[11px] font-semibold">Audio Input Level</Text>
-                <Text className={`text-[11px] font-bold ${isLiveMicActive ? "text-green-400" : "text-white/30"}`}>
+            <View style={styles.vuMeterBox}>
+              <View style={styles.vuHeader}>
+                <Text style={styles.vuTitle}>Audio Input Level</Text>
+                <Text style={[styles.vuValue, { color: isLiveMicActive ? "#4ade80" : "rgba(255,255,255,0.3)" }]}>
                   {isLiveMicActive ? `${Math.round(liveMicLevel * 100)}%` : "MUTED"}
                 </Text>
               </View>
-              <View className="w-full h-3 bg-white/10 rounded-full overflow-hidden flex-row">
+              <View style={styles.vuTrack}>
                 <View
-                  style={{ width: `${Math.min(100, liveMicLevel * 100)}%` }}
-                  className={`h-full rounded-full ${
-                    liveMicLevel > 0.8 ? "bg-red-500" : liveMicLevel > 0.5 ? "bg-amber-400" : "bg-emerald-500"
-                  }`}
+                  style={[
+                    styles.vuFill,
+                    {
+                      width: `${Math.min(100, liveMicLevel * 100)}%`,
+                      backgroundColor: liveMicLevel > 0.8 ? "#ef4444" : liveMicLevel > 0.5 ? "#f59e0b" : "#10b981",
+                    },
+                  ]}
                 />
               </View>
             </View>
@@ -504,14 +503,16 @@ export default function IntercomScreen() {
             {/* Mic Toggle Switch */}
             <TouchableOpacity
               onPress={() => setIsLiveMicActive(!isLiveMicActive)}
-              className={`w-full py-3.5 rounded-2xl items-center justify-center flex-row gap-2 border ${
-                isLiveMicActive
-                  ? "bg-red-600 border-red-500 shadow-lg shadow-red-600/40"
-                  : "bg-emerald-600 border-emerald-500 shadow-lg shadow-emerald-600/30"
-              }`}
+              style={[
+                styles.micToggleButton,
+                {
+                  backgroundColor: isLiveMicActive ? "#dc2626" : "#059669",
+                  borderColor: isLiveMicActive ? "#ef4444" : "#10b981",
+                },
+              ]}
             >
               <Microphone size={20} color="white" weight="bold" />
-              <Text className="text-white font-bold text-sm">
+              <Text style={styles.micToggleText}>
                 {isLiveMicActive ? "MUTE LIVE MIC" : "UNMUTE & GO LIVE"}
               </Text>
             </TouchableOpacity>
@@ -520,7 +521,7 @@ export default function IntercomScreen() {
 
         {/* Central PTT Button (For Modes 1 & 2) */}
         {activeMode !== "mic" && (
-          <View className="items-center justify-center my-6">
+          <View style={styles.pttContainer}>
             <Animated.View
               style={[
                 styles.pulseRing,
@@ -578,8 +579,8 @@ export default function IntercomScreen() {
 
         {/* State Label */}
         {activeMode !== "mic" && (
-          <View className="items-center mb-6">
-            <Text className="text-white font-black text-xl mb-1">
+          <View style={styles.stateLabelWrap}>
+            <Text style={styles.stateLabelTitle}>
               {recordingState === "recording"
                 ? activeMode === "peers"
                   ? `Speaking to ${getTargetPeerName()}…`
@@ -592,7 +593,7 @@ export default function IntercomScreen() {
                 ? `Hold to Talk (${getTargetPeerName()})`
                 : "Hold to Speak to Controller"}
             </Text>
-            <Text className="text-white/40 text-xs">
+            <Text style={styles.stateLabelSubtitle}>
               {recordingState === "recording"
                 ? "Release button when finished speaking"
                 : "Hold and speak clearly into your microphone"}
@@ -602,29 +603,29 @@ export default function IntercomScreen() {
 
         {/* Transcript / Result Banner */}
         {transcriptResult && (
-          <View className="w-full bg-green-500/15 border border-green-500/30 rounded-2xl p-4 flex-row items-center gap-3 mb-4">
+          <View style={styles.resultBanner}>
             <CheckCircle size={24} color="#4ADE80" weight="fill" />
-            <View className="flex-1">
-              <Text className="text-green-400 text-xs font-bold uppercase tracking-wider mb-0.5">
+            <View style={{ flex: 1 }}>
+              <Text style={styles.resultTag}>
                 {activeMode === "peers" ? "Intercom Message Sent" : "Desktop Recognized & Executed"}
               </Text>
-              <Text className="text-white font-semibold text-sm leading-snug">"{transcriptResult}"</Text>
+              <Text style={styles.resultText}>"{transcriptResult}"</Text>
             </View>
           </View>
         )}
 
         {/* Error Banner */}
         {errorMessage && (
-          <View className="w-full bg-red-500/15 border border-red-500/30 rounded-2xl p-4 flex-row items-center gap-3 mb-4">
+          <View style={styles.errorBanner}>
             <WarningCircle size={24} color="#F87171" weight="fill" />
-            <Text className="text-red-300 text-sm font-semibold flex-1">{errorMessage}</Text>
+            <Text style={styles.errorText}>{errorMessage}</Text>
           </View>
         )}
 
         {hasPermission === false && (
-          <View className="w-full bg-amber-500/10 border border-amber-500/20 rounded-2xl p-4 flex-row items-center gap-3">
+          <View style={styles.permBanner}>
             <MicrophoneSlash size={20} color="#FBBF24" weight="bold" />
-            <Text className="text-amber-300 text-xs flex-1">
+            <Text style={styles.permText}>
               Microphone permission is required for Intercom and Voice commands.
             </Text>
           </View>
@@ -635,6 +636,310 @@ export default function IntercomScreen() {
 }
 
 const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: "#121212",
+  },
+  header: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(255, 255, 255, 0.1)",
+  },
+  backButton: {
+    padding: 4,
+  },
+  headerCenter: {
+    alignItems: "center",
+    flex: 1,
+  },
+  headerTitle: {
+    color: "white",
+    fontSize: 18,
+    fontWeight: "bold",
+  },
+  headerSubtitle: {
+    color: "rgba(255, 255, 255, 0.4)",
+    fontSize: 12,
+  },
+  statusBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 999,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    borderWidth: 1,
+  },
+  statusDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  statusText: {
+    fontSize: 10,
+    fontWeight: "bold",
+  },
+  modeSelector: {
+    flexDirection: "row",
+    padding: 6,
+    backgroundColor: "rgba(255, 255, 255, 0.05)",
+    marginHorizontal: 16,
+    marginVertical: 12,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.1)",
+  },
+  modeButton: {
+    flex: 1,
+    paddingVertical: 10,
+    borderRadius: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+  },
+  modeButtonActivePurple: {
+    backgroundColor: "#9333ea",
+  },
+  modeButtonActiveBlue: {
+    backgroundColor: "#2563eb",
+  },
+  modeButtonActiveEmerald: {
+    backgroundColor: "#059669",
+  },
+  modeText: {
+    fontSize: 12,
+    fontWeight: "bold",
+    color: "rgba(255, 255, 255, 0.6)",
+  },
+  modeTextActive: {
+    color: "white",
+  },
+  scrollView: {
+    flex: 1,
+  },
+  scrollContent: {
+    padding: 20,
+    alignItems: "center",
+  },
+  incomingCard: {
+    width: "100%",
+    backgroundColor: "rgba(147, 51, 234, 0.2)",
+    borderWidth: 1,
+    borderColor: "rgba(168, 85, 247, 0.4)",
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 16,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  incomingLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    flex: 1,
+  },
+  incomingTag: {
+    color: "#c084fc",
+    fontSize: 11,
+    fontWeight: "bold",
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+  },
+  incomingSender: {
+    color: "white",
+    fontWeight: "bold",
+    fontSize: 14,
+  },
+  dismissButton: {
+    backgroundColor: "rgba(255, 255, 255, 0.1)",
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+  },
+  dismissText: {
+    color: "white",
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  fullWidth: {
+    width: "100%",
+  },
+  card: {
+    width: "100%",
+    backgroundColor: "rgba(255, 255, 255, 0.05)",
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.1)",
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 16,
+  },
+  cardHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 4,
+  },
+  cardTitle: {
+    color: "rgba(255, 255, 255, 0.9)",
+    fontWeight: "bold",
+    fontSize: 14,
+  },
+  cardSubtitle: {
+    color: "rgba(255, 255, 255, 0.5)",
+    fontSize: 12,
+    lineHeight: 16,
+    marginTop: 2,
+  },
+  pillContainer: {
+    flexDirection: "row",
+    gap: 8,
+    marginTop: 12,
+  },
+  peerPill: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    borderWidth: 1,
+  },
+  peerPillActive: {
+    backgroundColor: "#9333ea",
+    borderColor: "#c084fc",
+  },
+  peerPillInactive: {
+    backgroundColor: "rgba(255, 255, 255, 0.05)",
+    borderColor: "rgba(255, 255, 255, 0.1)",
+  },
+  peerPillText: {
+    color: "white",
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  emptyPeersText: {
+    color: "rgba(255, 255, 255, 0.3)",
+    fontSize: 12,
+    fontStyle: "italic",
+  },
+  tagsWrap: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginTop: 10,
+  },
+  blueTag: {
+    backgroundColor: "rgba(59, 130, 246, 0.15)",
+    borderColor: "rgba(59, 130, 246, 0.3)",
+    borderWidth: 1,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 8,
+  },
+  blueTagText: {
+    color: "#93c5fd",
+    fontSize: 11,
+    fontWeight: "600",
+  },
+  amberTag: {
+    backgroundColor: "rgba(245, 158, 11, 0.15)",
+    borderColor: "rgba(245, 158, 11, 0.3)",
+    borderWidth: 1,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 8,
+  },
+  amberTagText: {
+    color: "#fde68a",
+    fontSize: 11,
+    fontWeight: "600",
+  },
+  purpleTag: {
+    backgroundColor: "rgba(147, 51, 234, 0.15)",
+    borderColor: "rgba(147, 51, 234, 0.3)",
+    borderWidth: 1,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 8,
+  },
+  purpleTagText: {
+    color: "#d8b4fe",
+    fontSize: 11,
+    fontWeight: "600",
+  },
+  emeraldTag: {
+    backgroundColor: "rgba(16, 185, 129, 0.15)",
+    borderColor: "rgba(16, 185, 129, 0.3)",
+    borderWidth: 1,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 8,
+  },
+  emeraldTagText: {
+    color: "#6ee7b7",
+    fontSize: 11,
+    fontWeight: "600",
+  },
+  vuMeterBox: {
+    width: "100%",
+    backgroundColor: "rgba(0, 0, 0, 0.4)",
+    borderColor: "rgba(255, 255, 255, 0.1)",
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 16,
+  },
+  vuHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 6,
+  },
+  vuTitle: {
+    color: "rgba(255, 255, 255, 0.5)",
+    fontSize: 11,
+    fontWeight: "600",
+  },
+  vuValue: {
+    fontSize: 11,
+    fontWeight: "bold",
+  },
+  vuTrack: {
+    width: "100%",
+    height: 12,
+    backgroundColor: "rgba(255, 255, 255, 0.1)",
+    borderRadius: 6,
+    overflow: "hidden",
+  },
+  vuFill: {
+    height: "100%",
+    borderRadius: 6,
+  },
+  micToggleButton: {
+    width: "100%",
+    paddingVertical: 14,
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "center",
+    flexDirection: "row",
+    gap: 8,
+    borderWidth: 1,
+  },
+  micToggleText: {
+    color: "white",
+    fontWeight: "bold",
+    fontSize: 14,
+  },
+  pttContainer: {
+    alignItems: "center",
+    justifyContent: "center",
+    marginVertical: 24,
+  },
   pulseRing: {
     width: 208,
     height: 208,
@@ -654,5 +959,80 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.35,
     shadowRadius: 12,
     elevation: 8,
+  },
+  stateLabelWrap: {
+    alignItems: "center",
+    marginBottom: 20,
+  },
+  stateLabelTitle: {
+    color: "white",
+    fontWeight: "900",
+    fontSize: 18,
+    marginBottom: 4,
+    textAlign: "center",
+  },
+  stateLabelSubtitle: {
+    color: "rgba(255, 255, 255, 0.4)",
+    fontSize: 12,
+    textAlign: "center",
+  },
+  resultBanner: {
+    width: "100%",
+    backgroundColor: "rgba(34, 197, 94, 0.15)",
+    borderWidth: 1,
+    borderColor: "rgba(34, 197, 94, 0.3)",
+    borderRadius: 16,
+    padding: 16,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    marginBottom: 16,
+  },
+  resultTag: {
+    color: "#4ade80",
+    fontSize: 11,
+    fontWeight: "bold",
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+    marginBottom: 2,
+  },
+  resultText: {
+    color: "white",
+    fontWeight: "600",
+    fontSize: 14,
+  },
+  errorBanner: {
+    width: "100%",
+    backgroundColor: "rgba(239, 68, 68, 0.15)",
+    borderWidth: 1,
+    borderColor: "rgba(239, 68, 68, 0.3)",
+    borderRadius: 16,
+    padding: 16,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    marginBottom: 16,
+  },
+  errorText: {
+    color: "#fca5a5",
+    fontSize: 13,
+    fontWeight: "600",
+    flex: 1,
+  },
+  permBanner: {
+    width: "100%",
+    backgroundColor: "rgba(245, 158, 11, 0.1)",
+    borderWidth: 1,
+    borderColor: "rgba(245, 158, 11, 0.2)",
+    borderRadius: 16,
+    padding: 16,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  permText: {
+    color: "#fcd34d",
+    fontSize: 12,
+    flex: 1,
   },
 });
