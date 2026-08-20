@@ -262,6 +262,7 @@ export default function IntercomScreen() {
           dataBase64: base64Audio,
           format,
           durationMs,
+          role: "final",
         });
 
         if (res.ok) {
@@ -270,6 +271,22 @@ export default function IntercomScreen() {
         } else {
           setRecordingState("error");
           setErrorMessage(res.error || "Desktop voice command failed");
+        }
+      } else if (activeMode === "mic") {
+        // Mode 3: Wireless Microphone -> Transcribes to Desktop Transcription Panel
+        const res = await sendVoiceAudio({
+          dataBase64: base64Audio,
+          format,
+          durationMs,
+          role: "mic",
+        });
+
+        if (res.ok) {
+          setRecordingState("confirmed");
+          setTranscriptResult(res.text || "Voice sent to Desktop Transcription Panel");
+        } else {
+          setRecordingState("error");
+          setErrorMessage(res.error || "Wireless mic transmission failed");
         }
       } else {
         setRecordingState("idle");
