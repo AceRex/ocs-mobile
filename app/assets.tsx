@@ -175,7 +175,7 @@ export default function AssetsScreen() {
       // Detect type
       let detectedType: "image" | "video" | "audio" | "presentation" | "media" = "media";
       const ext = filename.toLowerCase();
-      if (category === "presentation" || ext.endsWith(".pptx") || ext.endsWith(".ppt")) {
+      if (category === "presentation" || ext.endsWith(".pptx") || ext.endsWith(".ppt") || ext.endsWith(".pdf")) {
         detectedType = "presentation";
       } else if (category === "audio" || /\.(mp3|wav|m4a|aac|ogg|flac)$/i.test(ext)) {
         detectedType = "audio";
