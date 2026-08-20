@@ -12,7 +12,6 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
-import { Audio } from "expo-av";
 import * as FileSystem from "expo-file-system/legacy";
 import {
   ArrowLeft,
@@ -24,6 +23,14 @@ import {
 } from "phosphor-react-native";
 import { useSocketStore } from "../store/socketStore";
 
+// Safe dynamic loader for expo-audio on Expo SDK 57+
+let ExpoAudio: any = null;
+try {
+  ExpoAudio = require("expo-audio");
+} catch (e) {
+  // Fallback if not available
+}
+
 export default function IntercomScreen() {
   const router = useRouter();
   const { isConnected, isPaired, setVoiceActive, sendVoiceAudio } = useSocketStore();
@@ -34,22 +41,28 @@ export default function IntercomScreen() {
   const [hasPermission, setHasPermission] = useState<boolean | null>(null);
 
   const pulseAnim = useRef(new Animated.Value(1)).current;
-  const recordingRef = useRef<Audio.Recording | null>(null);
+  const nativeRecorderRef = useRef<any>(null);
+  const webRecorderRef = useRef<any>(null);
+  const webChunksRef = useRef<Blob[]>([]);
   const recordStartTimeRef = useRef<number>(0);
 
   useEffect(() => {
     // Check permission on mount
-    Audio.getPermissionsAsync()
-      .then((res) => {
-        if (res.granted) {
+    if (ExpoAudio?.requestRecordingPermissionsAsync) {
+      ExpoAudio.requestRecordingPermissionsAsync()
+        .then((res: any) => setHasPermission(!!res.granted))
+        .catch(() => setHasPermission(false));
+    } else if (typeof navigator !== "undefined" && navigator.mediaDevices?.getUserMedia) {
+      navigator.mediaDevices
+        .getUserMedia({ audio: true })
+        .then((stream) => {
           setHasPermission(true);
-        } else {
-          Audio.requestPermissionsAsync().then((req) => setHasPermission(req.granted));
-        }
-      })
-      .catch(() => {
-        setHasPermission(false);
-      });
+          stream.getTracks().forEach((track) => track.stop());
+        })
+        .catch(() => setHasPermission(false));
+    } else {
+      setHasPermission(true);
+    }
   }, []);
 
   useEffect(() => {
@@ -87,27 +100,42 @@ export default function IntercomScreen() {
     recordStartTimeRef.current = Date.now();
 
     try {
-      const perm = await Audio.requestPermissionsAsync();
-      if (!perm.granted) {
-        setHasPermission(false);
-        setRecordingState("error");
-        setErrorMessage("Microphone permission denied.");
-        return;
+      if (ExpoAudio?.AudioRecorder) {
+        const perm = await ExpoAudio.requestRecordingPermissionsAsync();
+        if (!perm.granted) {
+          setHasPermission(false);
+          setRecordingState("error");
+          setErrorMessage("Microphone permission denied.");
+          return;
+        }
+        setHasPermission(true);
+
+        const recorder = new ExpoAudio.AudioRecorder(
+          ExpoAudio.RecordingPresets?.HIGH_QUALITY || {}
+        );
+        await recorder.prepareToRecordAsync();
+        recorder.record();
+        nativeRecorderRef.current = recorder;
+
+        setRecordingState("recording");
+        setVoiceActive(true);
+      } else if (typeof navigator !== "undefined" && navigator.mediaDevices?.getUserMedia) {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        webChunksRef.current = [];
+        const mediaRecorder = new (window as any).MediaRecorder(stream);
+        webRecorderRef.current = mediaRecorder;
+
+        mediaRecorder.ondataavailable = (e: any) => {
+          if (e.data && e.data.size > 0) webChunksRef.current.push(e.data);
+        };
+        mediaRecorder.start(100);
+
+        setRecordingState("recording");
+        setVoiceActive(true);
+      } else {
+        setRecordingState("recording");
+        setVoiceActive(true);
       }
-      setHasPermission(true);
-
-      await Audio.setAudioModeAsync({
-        allowsRecordingIOS: true,
-        playsInSilentModeIOS: true,
-      });
-
-      const recording = new Audio.Recording();
-      await recording.prepareToRecordAsync(Audio.RecordingOptionsPresets.HIGH_QUALITY);
-      await recording.startAsync();
-      recordingRef.current = recording;
-
-      setRecordingState("recording");
-      setVoiceActive(true);
     } catch (err: any) {
       console.error("Recording start error:", err);
       setRecordingState("error");
@@ -124,19 +152,18 @@ export default function IntercomScreen() {
     const durationMs = Date.now() - recordStartTimeRef.current;
 
     try {
-      const recording = recordingRef.current;
-      if (recording) {
-        await recording.stopAndUnloadAsync();
-        const uri = recording.getURI();
-        recordingRef.current = null;
+      // 1. Native ExpoAudio recorder
+      if (nativeRecorderRef.current) {
+        const recorder = nativeRecorderRef.current;
+        nativeRecorderRef.current = null;
+        await recorder.stop();
+        const uri = recorder.uri;
 
         if (uri) {
-          // Read recorded audio into base64
           const base64 = await FileSystem.readAsStringAsync(uri, {
             encoding: FileSystem.EncodingType.Base64,
           });
 
-          // Send to desktop controller
           const res = await sendVoiceAudio({
             dataBase64: base64,
             format: "m4a",
@@ -153,6 +180,40 @@ export default function IntercomScreen() {
         } else {
           setRecordingState("idle");
         }
+      }
+      // 2. Web MediaRecorder
+      else if (webRecorderRef.current) {
+        const recorder = webRecorderRef.current;
+        webRecorderRef.current = null;
+
+        recorder.onstop = async () => {
+          const audioBlob = new Blob(webChunksRef.current, { type: recorder.mimeType || "audio/webm" });
+          if (recorder.stream) {
+            recorder.stream.getTracks().forEach((t: any) => t.stop());
+          }
+
+          const reader = new FileReader();
+          reader.onloadend = async () => {
+            const dataUrl = reader.result as string;
+            const base64Data = dataUrl.includes("base64,") ? dataUrl.split("base64,")[1] : dataUrl;
+
+            const res = await sendVoiceAudio({
+              dataBase64: base64Data,
+              format: recorder.mimeType || "webm",
+              durationMs,
+            });
+
+            if (res.ok) {
+              setRecordingState("confirmed");
+              setTranscriptResult(res.text || "Command recognized on desktop");
+            } else {
+              setRecordingState("error");
+              setErrorMessage(res.error || "Desktop voice command failed");
+            }
+          };
+          reader.readAsDataURL(audioBlob);
+        };
+        recorder.stop();
       } else {
         setRecordingState("idle");
       }
