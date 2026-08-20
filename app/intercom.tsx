@@ -69,6 +69,8 @@ export default function IntercomScreen() {
   const webChunksRef = useRef<Blob[]>([]);
   const recordStartTimeRef = useRef<number>(0);
   const liveMicIntervalRef = useRef<any>(null);
+  const liveMicActiveRef = useRef(false);
+  const continuousChunkIndexRef = useRef(0);
 
   useEffect(() => {
     // Check permission on mount
@@ -83,20 +85,129 @@ export default function IntercomScreen() {
     }
   }, [isPaired]);
 
-  // Mode 3: Live mic VU meter simulation & streaming
+  // Mode 3: Continuous Wireless Mic Streaming Loop
   useEffect(() => {
-    if (isLiveMicActive) {
-      liveMicIntervalRef.current = setInterval(() => {
-        const level = Math.random() * 0.7 + 0.3; // simulate live audio input level
-        setLiveMicLevel(level);
-        streamMicChunk({ volume: level, active: true });
-      }, 100);
-    } else {
+    liveMicActiveRef.current = isLiveMicActive;
+    if (!isLiveMicActive) {
       if (liveMicIntervalRef.current) clearInterval(liveMicIntervalRef.current);
       setLiveMicLevel(0);
       streamMicChunk({ volume: 0, active: false });
+      return;
     }
+
+    let isStreaming = true;
+
+    // Simulate animated VU meter
+    liveMicIntervalRef.current = setInterval(() => {
+      if (!liveMicActiveRef.current) return;
+      const level = Math.random() * 0.65 + 0.35;
+      setLiveMicLevel(level);
+      streamMicChunk({ volume: level, active: true });
+    }, 120);
+
+    // Continuous audio recording loop
+    const runContinuousMicStream = async () => {
+      while (isStreaming && liveMicActiveRef.current) {
+        try {
+          let base64Audio = "";
+          let format = "m4a";
+
+          if (Platform.OS === "web") {
+            if (typeof navigator !== "undefined" && navigator.mediaDevices?.getUserMedia) {
+              const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+              const webChunks: Blob[] = [];
+              const mediaRecorder = new (window as any).MediaRecorder(stream);
+              mediaRecorder.ondataavailable = (e: any) => {
+                if (e.data && e.data.size > 0) webChunks.push(e.data);
+              };
+              mediaRecorder.start(100);
+              // Record continuous slice
+              await new Promise((r) => setTimeout(r, 2600));
+              if (!liveMicActiveRef.current) {
+                mediaRecorder.stop();
+                stream.getTracks().forEach((t: any) => t.stop());
+                break;
+              }
+              await new Promise<void>((resolve) => {
+                mediaRecorder.onstop = async () => {
+                  stream.getTracks().forEach((t: any) => t.stop());
+                  const audioBlob = new Blob(webChunks, { type: mediaRecorder.mimeType || "audio/webm" });
+                  const reader = new FileReader();
+                  reader.onloadend = () => {
+                    const dataUrl = reader.result as string;
+                    base64Audio = dataUrl.includes("base64,") ? dataUrl.split("base64,")[1] : dataUrl;
+                    format = mediaRecorder.mimeType || "webm";
+                    resolve();
+                  };
+                  reader.readAsDataURL(audioBlob);
+                };
+                mediaRecorder.stop();
+              });
+            }
+          } else {
+            const perm = await requestRecordingPermissionsAsync();
+            if (!perm.granted) {
+              setHasPermission(false);
+              setIsLiveMicActive(false);
+              break;
+            }
+
+            try {
+              await setAudioModeAsync({
+                allowsRecording: true,
+                playsInSilentMode: true,
+              });
+            } catch (_) {}
+
+            const recorder = new AudioModule.AudioRecorder(RecordingPresets.HIGH_QUALITY);
+            await recorder.prepareToRecordAsync();
+            recorder.record();
+
+            // Record continuous slice
+            await new Promise((r) => setTimeout(r, 2600));
+            if (!liveMicActiveRef.current) {
+              try { await recorder.stop(); } catch (_) {}
+              break;
+            }
+
+            try {
+              await recorder.stop();
+            } catch (_) {}
+
+            const uri = recorder.uri;
+            if (uri) {
+              base64Audio = await FileSystem.readAsStringAsync(uri, {
+                encoding: FileSystem.EncodingType.Base64,
+              });
+              format = "m4a";
+            }
+          }
+
+          if (base64Audio && liveMicActiveRef.current) {
+            continuousChunkIndexRef.current += 1;
+            sendVoiceAudio({
+              dataBase64: base64Audio,
+              format,
+              durationMs: 2600,
+              role: "mic",
+            }).then((res) => {
+              if (res?.text) {
+                setTranscriptResult(res.text);
+              }
+            }).catch(() => {});
+          }
+        } catch (err: any) {
+          console.warn("Continuous mic stream error:", err?.message);
+          await new Promise((r) => setTimeout(r, 400));
+        }
+      }
+    };
+
+    runContinuousMicStream();
+
     return () => {
+      isStreaming = false;
+      liveMicActiveRef.current = false;
       if (liveMicIntervalRef.current) clearInterval(liveMicIntervalRef.current);
     };
   }, [isLiveMicActive]);
