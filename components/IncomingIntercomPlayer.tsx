@@ -22,6 +22,7 @@ export default function IncomingIntercomPlayer({ isBanner = false }: { isBanner?
   const [autoPlay, setAutoPlay] = useState(true);
 
   const playerRef = useRef<AudioPlayer | null>(null);
+  const webAudioRef = useRef<HTMLAudioElement | null>(null);
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const slideAnim = useRef(new Animated.Value(-100)).current;
 
@@ -34,6 +35,12 @@ export default function IncomingIntercomPlayer({ isBanner = false }: { isBanner?
           playerRef.current.release();
         } catch (_) {}
         playerRef.current = null;
+      }
+      if (webAudioRef.current) {
+        try {
+          webAudioRef.current.pause();
+        } catch (_) {}
+        webAudioRef.current = null;
       }
       setIsPlaying(false);
       setAudioUri(null);
@@ -58,53 +65,95 @@ export default function IncomingIntercomPlayer({ isBanner = false }: { isBanner?
           : incomingIntercom.audioBase64;
 
         const ext = incomingIntercom.format || "m4a";
-        const fileUri = `${FileSystem.cacheDirectory}intercom_${Date.now()}.${ext}`;
 
-        await FileSystem.writeAsStringAsync(fileUri, cleanBase64, {
-          encoding: FileSystem.EncodingType.Base64,
-        });
+        if (Platform.OS === "web") {
+          // Web Browser audio strategy: Use HTML5 Audio directly with data URI
+          const mimeType = ext === "wav" ? "audio/wav" : ext === "mp3" ? "audio/mpeg" : "audio/mp4";
+          const dataUrl = `data:${mimeType};base64,${cleanBase64}`;
+          setAudioUri(dataUrl);
 
-        if (!isMounted) return;
-        setAudioUri(fileUri);
-
-        await setAudioModeAsync({
-          playsInSilentMode: true,
-          allowsRecording: false,
-        });
-
-        if (playerRef.current) {
-          try {
-            playerRef.current.release();
-          } catch (_) {}
-        }
-
-        const player = createAudioPlayer({ uri: fileUri });
-        playerRef.current = player;
-
-        player.addListener("playbackStatusUpdate", (status: any) => {
-          if (!isMounted) return;
-          if (status.isLoaded) {
-            if (status.duration > 0) {
-              setProgress(status.currentTime / status.duration);
-            }
-            if (status.playing) {
-              setIsPlaying(true);
-            } else {
-              setIsPlaying(false);
-            }
-            if (status.currentTime >= status.duration && status.duration > 0) {
-              setIsPlaying(false);
-              setProgress(0);
-            }
+          if (webAudioRef.current) {
+            try {
+              webAudioRef.current.pause();
+            } catch (_) {}
           }
-        });
 
-        setIsLoading(false);
+          const audio = new Audio(dataUrl);
+          webAudioRef.current = audio;
 
-        // Auto-play immediately if enabled
-        if (autoPlay) {
-          player.play();
-          setIsPlaying(true);
+          audio.ontimeupdate = () => {
+            if (!isMounted) return;
+            if (audio.duration > 0) {
+              setProgress(audio.currentTime / audio.duration);
+            }
+          };
+
+          audio.onplay = () => {
+            if (isMounted) setIsPlaying(true);
+          };
+
+          audio.onpause = () => {
+            if (isMounted) setIsPlaying(false);
+          };
+
+          audio.onended = () => {
+            if (!isMounted) return;
+            setIsPlaying(false);
+            setProgress(0);
+          };
+
+          setIsLoading(false);
+
+          if (autoPlay) {
+            audio.play().catch((err) => {
+              console.log("[IncomingIntercomPlayer] Web auto-play notice:", err.message);
+            });
+          }
+        } else {
+          // Native (iOS/Android) strategy: Cache to temp file and use expo-audio
+          const fileUri = `${FileSystem.cacheDirectory}intercom_${Date.now()}.${ext}`;
+
+          await FileSystem.writeAsStringAsync(fileUri, cleanBase64, {
+            encoding: FileSystem.EncodingType.Base64,
+          });
+
+          if (!isMounted) return;
+          setAudioUri(fileUri);
+
+          await setAudioModeAsync({
+            playsInSilentMode: true,
+            allowsRecording: false,
+          });
+
+          if (playerRef.current) {
+            try {
+              playerRef.current.release();
+            } catch (_) {}
+          }
+
+          const player = createAudioPlayer({ uri: fileUri });
+          playerRef.current = player;
+
+          player.addListener("playbackStatusUpdate", (status: any) => {
+            if (!isMounted) return;
+            if (status.isLoaded) {
+              if (status.duration > 0) {
+                setProgress(status.currentTime / status.duration);
+              }
+              setIsPlaying(status.playing);
+              if (status.currentTime >= status.duration && status.duration > 0) {
+                setIsPlaying(false);
+                setProgress(0);
+              }
+            }
+          });
+
+          setIsLoading(false);
+
+          if (autoPlay) {
+            player.play();
+            setIsPlaying(true);
+          }
         }
       } catch (err) {
         console.error("[IncomingIntercomPlayer] Error preparing audio:", err);
@@ -126,6 +175,12 @@ export default function IncomingIntercomPlayer({ isBanner = false }: { isBanner?
         } catch (_) {}
         playerRef.current = null;
       }
+      if (webAudioRef.current) {
+        try {
+          webAudioRef.current.pause();
+        } catch (_) {}
+        webAudioRef.current = null;
+      }
     };
   }, [incomingIntercom]);
 
@@ -138,12 +193,12 @@ export default function IncomingIntercomPlayer({ isBanner = false }: { isBanner?
           Animated.timing(pulseAnim, {
             toValue: 1.15,
             duration: 400,
-            useNativeDriver: true,
+            useNativeDriver: Platform.OS !== "web",
           }),
           Animated.timing(pulseAnim, {
             toValue: 1,
             duration: 400,
-            useNativeDriver: true,
+            useNativeDriver: Platform.OS !== "web",
           }),
         ])
       );
@@ -157,6 +212,33 @@ export default function IncomingIntercomPlayer({ isBanner = false }: { isBanner?
   if (!incomingIntercom) return null;
 
   const togglePlayback = async () => {
+    if (Platform.OS === "web") {
+      if (webAudioRef.current) {
+        if (isPlaying) {
+          webAudioRef.current.pause();
+          setIsPlaying(false);
+        } else {
+          webAudioRef.current.play().catch((e) => console.log("Play error:", e));
+          setIsPlaying(true);
+        }
+      } else if (audioUri) {
+        const audio = new Audio(audioUri);
+        webAudioRef.current = audio;
+        audio.ontimeupdate = () => {
+          if (audio.duration > 0) setProgress(audio.currentTime / audio.duration);
+        };
+        audio.onplay = () => setIsPlaying(true);
+        audio.onpause = () => setIsPlaying(false);
+        audio.onended = () => {
+          setIsPlaying(false);
+          setProgress(0);
+        };
+        audio.play().catch((e) => console.log("Play error:", e));
+      }
+      return;
+    }
+
+    // Native playback toggle
     if (!playerRef.current) {
       if (audioUri) {
         try {
@@ -207,6 +289,12 @@ export default function IncomingIntercomPlayer({ isBanner = false }: { isBanner?
         playerRef.current.release();
       } catch (_) {}
       playerRef.current = null;
+    }
+    if (webAudioRef.current) {
+      try {
+        webAudioRef.current.pause();
+      } catch (_) {}
+      webAudioRef.current = null;
     }
     setIsPlaying(false);
     clearIncomingIntercom();
