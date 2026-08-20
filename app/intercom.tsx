@@ -168,7 +168,14 @@ export default function IntercomScreen() {
           });
         } catch (_) {}
 
-        await audioRecorder.prepareToRecordAsync();
+        try {
+          await audioRecorder.prepareToRecordAsync();
+        } catch (prepErr: any) {
+          // If already prepared, proceed to record
+          if (!prepErr?.message?.includes("already been prepared")) {
+            console.warn("prepareToRecordAsync notice:", prepErr.message);
+          }
+        }
         audioRecorder.record();
 
         setRecordingState("recording");
@@ -216,7 +223,11 @@ export default function IntercomScreen() {
           });
         }
       } else {
-        await audioRecorder.stop();
+        try {
+          await audioRecorder.stop();
+        } catch (stopErr: any) {
+          console.warn("audioRecorder.stop notice:", stopErr?.message);
+        }
         const uri = audioRecorder.uri;
 
         if (uri) {
