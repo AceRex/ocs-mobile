@@ -13,7 +13,13 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import * as FileSystem from "expo-file-system/legacy";
-import { Audio } from "expo-av";
+import {
+  AudioModule,
+  RecordingPresets,
+  requestRecordingPermissionsAsync,
+  getRecordingPermissionsAsync,
+  setAudioModeAsync,
+} from "expo-audio";
 import {
   ArrowLeft,
   Microphone,
@@ -58,7 +64,7 @@ export default function IntercomScreen() {
   const [liveMicLevel, setLiveMicLevel] = useState(0);
 
   const pulseAnim = useRef(new Animated.Value(1)).current;
-  const recordingRef = useRef<Audio.Recording | null>(null);
+  const nativeRecorderRef = useRef<any>(null);
   const webRecorderRef = useRef<any>(null);
   const webChunksRef = useRef<Blob[]>([]);
   const recordStartTimeRef = useRef<number>(0);
@@ -66,7 +72,7 @@ export default function IntercomScreen() {
 
   useEffect(() => {
     // Check permission on mount
-    Audio.getPermissionsAsync()
+    getRecordingPermissionsAsync()
       .then((res) => setHasPermission(!!res.granted))
       .catch(() => setHasPermission(false));
 
@@ -146,7 +152,7 @@ export default function IntercomScreen() {
           setVoiceActive(true);
         }
       } else {
-        const perm = await Audio.requestPermissionsAsync();
+        const perm = await requestRecordingPermissionsAsync();
         if (!perm.granted) {
           setHasPermission(false);
           setRecordingState("error");
@@ -155,22 +161,18 @@ export default function IntercomScreen() {
         }
         setHasPermission(true);
 
-        await Audio.setAudioModeAsync({
-          allowsRecordingIOS: true,
-          playsInSilentModeIOS: true,
-        });
+        try {
+          await setAudioModeAsync({
+            allowsRecording: true,
+            playsInSilentMode: true,
+          });
+        } catch (_) {}
 
-        if (recordingRef.current) {
-          try {
-            await recordingRef.current.stopAndUnloadAsync();
-          } catch (_) {}
-          recordingRef.current = null;
-        }
-
-        const { recording } = await Audio.Recording.createAsync(
-          Audio.RecordingOptionsPresets.HIGH_QUALITY
-        );
-        recordingRef.current = recording;
+        // Fresh instance per recording session ensures clean state machine on Android
+        const recorder = new AudioModule.AudioRecorder(RecordingPresets.HIGH_QUALITY);
+        nativeRecorderRef.current = recorder;
+        await recorder.prepareToRecordAsync();
+        recorder.record();
 
         setRecordingState("recording");
         setVoiceActive(true);
@@ -217,15 +219,15 @@ export default function IntercomScreen() {
           });
         }
       } else {
-        if (recordingRef.current) {
-          const rec = recordingRef.current;
-          recordingRef.current = null;
+        if (nativeRecorderRef.current) {
+          const recorder = nativeRecorderRef.current;
+          nativeRecorderRef.current = null;
           try {
-            await rec.stopAndUnloadAsync();
-          } catch (err: any) {
-            console.warn("stopAndUnloadAsync error:", err);
+            await recorder.stop();
+          } catch (stopErr: any) {
+            console.warn("recorder.stop error:", stopErr?.message);
           }
-          const uri = rec.getURI();
+          const uri = recorder.uri;
           if (uri) {
             base64Audio = await FileSystem.readAsStringAsync(uri, {
               encoding: FileSystem.EncodingType.Base64,
