@@ -59,9 +59,43 @@ export default function IntercomScreen() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [hasPermission, setHasPermission] = useState<boolean | null>(null);
 
-  // Mode 3: Wireless Mic Live State
   const [isLiveMicActive, setIsLiveMicActive] = useState(false);
   const [liveMicLevel, setLiveMicLevel] = useState(0);
+
+  // Universal helper to read audio URI to base64
+  const readAudioUriToBase64 = async (uri: string): Promise<string | null> => {
+    try {
+      const response = await fetch(uri);
+      const blob = await response.blob();
+      const dataUrl: string = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          if (typeof reader.result === "string") {
+            resolve(reader.result);
+          } else {
+            reject(new Error("FileReader failed"));
+          }
+        };
+        reader.onerror = () => reject(new Error("FileReader error"));
+        reader.readAsDataURL(blob);
+      });
+      if (dataUrl) {
+        const parts = dataUrl.split(",");
+        return parts.length > 1 ? parts[1] : parts[0];
+      }
+    } catch (e) {
+      console.warn("[readAudioUriToBase64] Universal fetch notice:", e);
+    }
+
+    try {
+      return await FileSystem.readAsStringAsync(uri, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+    } catch (fsErr) {
+      console.error("[readAudioUriToBase64] FileSystem failed:", fsErr);
+      return null;
+    }
+  };
 
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const nativeRecorderRef = useRef<any>(null);
@@ -176,9 +210,7 @@ export default function IntercomScreen() {
 
             const uri = recorder.uri;
             if (uri) {
-              base64Audio = await FileSystem.readAsStringAsync(uri, {
-                encoding: FileSystem.EncodingType.Base64,
-              });
+              base64Audio = await readAudioUriToBase64(uri);
               format = "m4a";
             }
           }
@@ -340,9 +372,7 @@ export default function IntercomScreen() {
           }
           const uri = recorder.uri;
           if (uri) {
-            base64Audio = await FileSystem.readAsStringAsync(uri, {
-              encoding: FileSystem.EncodingType.Base64,
-            });
+            base64Audio = await readAudioUriToBase64(uri);
             format = "m4a";
           }
         }

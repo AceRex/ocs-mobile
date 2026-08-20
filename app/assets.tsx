@@ -52,31 +52,40 @@ export default function AssetsScreen() {
 
   // Universal helper to read URI or file to base64
   const readUriToBase64 = async (uri: string, mimeType?: string): Promise<string> => {
-    // 1. If web runtime with blob/data url
-    if (Platform.OS === "web" || typeof document !== "undefined") {
-      try {
-        const response = await fetch(uri);
-        const blob = await response.blob();
-        return new Promise((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onloadend = () => {
-            const dataUrl = reader.result as string;
-            resolve(dataUrl);
-          };
-          reader.onerror = reject;
-          reader.readAsDataURL(blob);
-        });
-      } catch (e) {
-        // fallback to FileSystem
+    // 1. Universal Fetch + Blob + FileReader (Reliably reads Android DocumentPicker cache, iOS & Web)
+    try {
+      const response = await fetch(uri);
+      const blob = await response.blob();
+      const dataUrl: string = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          if (typeof reader.result === "string") {
+            resolve(reader.result);
+          } else {
+            reject(new Error("FileReader did not produce string"));
+          }
+        };
+        reader.onerror = () => reject(new Error("FileReader failed"));
+        reader.readAsDataURL(blob);
+      });
+      if (dataUrl && dataUrl.startsWith("data:")) {
+        return dataUrl;
       }
+    } catch (fetchErr) {
+      console.warn("[readUriToBase64] Universal fetch strategy notice:", fetchErr);
     }
 
-    // 2. Native FileSystem legacy
-    const base64 = await FileSystem.readAsStringAsync(uri, {
-      encoding: FileSystem.EncodingType.Base64,
-    });
-    const prefix = mimeType ? `data:${mimeType};base64,` : "data:application/octet-stream;base64,";
-    return `${prefix}${base64}`;
+    // 2. Native FileSystem fallback
+    try {
+      const base64 = await FileSystem.readAsStringAsync(uri, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+      const prefix = mimeType ? `data:${mimeType};base64,` : "data:application/octet-stream;base64,";
+      return `${prefix}${base64}`;
+    } catch (fsErr) {
+      console.error("[readUriToBase64] FileSystem fallback failed:", fsErr);
+      throw fsErr;
+    }
   };
 
   const pickImageOrVideo = async (mediaType: "images" | "videos") => {
