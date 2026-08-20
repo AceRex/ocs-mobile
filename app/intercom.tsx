@@ -8,16 +8,18 @@ import {
   ActivityIndicator,
   Animated,
   Platform,
+  StyleSheet,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
+import { Audio } from "expo-av";
+import * as FileSystem from "expo-file-system/legacy";
 import {
   ArrowLeft,
   Microphone,
   MicrophoneSlash,
   CheckCircle,
   WarningCircle,
-  Broadcast,
   Sparkle,
 } from "phosphor-react-native";
 import { useSocketStore } from "../store/socketStore";
@@ -32,44 +34,42 @@ export default function IntercomScreen() {
   const [hasPermission, setHasPermission] = useState<boolean | null>(null);
 
   const pulseAnim = useRef(new Animated.Value(1)).current;
-  const mediaRecorderRef = useRef<any>(null);
-  const audioChunksRef = useRef<Blob[]>([]);
+  const recordingRef = useRef<Audio.Recording | null>(null);
   const recordStartTimeRef = useRef<number>(0);
 
   useEffect(() => {
-    // Check audio permission on mount
-    if (typeof navigator !== "undefined" && navigator.mediaDevices?.getUserMedia) {
-      navigator.mediaDevices
-        .getUserMedia({ audio: true })
-        .then((stream) => {
+    // Check permission on mount
+    Audio.getPermissionsAsync()
+      .then((res) => {
+        if (res.granted) {
           setHasPermission(true);
-          // Stop stream tracks after permission check
-          stream.getTracks().forEach((track) => track.stop());
-        })
-        .catch(() => {
-          setHasPermission(false);
-        });
-    } else {
-      setHasPermission(true);
-    }
+        } else {
+          Audio.requestPermissionsAsync().then((req) => setHasPermission(req.granted));
+        }
+      })
+      .catch(() => {
+        setHasPermission(false);
+      });
   }, []);
 
   useEffect(() => {
     if (recordingState === "recording") {
-      Animated.loop(
+      const loop = Animated.loop(
         Animated.sequence([
           Animated.timing(pulseAnim, {
-            toValue: 1.25,
-            duration: 600,
+            toValue: 1.2,
+            duration: 500,
             useNativeDriver: true,
           }),
           Animated.timing(pulseAnim, {
             toValue: 1.0,
-            duration: 600,
+            duration: 500,
             useNativeDriver: true,
           }),
         ])
-      ).start();
+      );
+      loop.start();
+      return () => loop.stop();
     } else {
       pulseAnim.setValue(1);
     }
@@ -84,34 +84,34 @@ export default function IntercomScreen() {
 
     setTranscriptResult(null);
     setErrorMessage(null);
-    setRecordingState("recording");
-    setVoiceActive(true);
     recordStartTimeRef.current = Date.now();
 
     try {
-      if (typeof navigator !== "undefined" && navigator.mediaDevices?.getUserMedia) {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          audio: {
-            channelCount: 1,
-            sampleRate: 16000,
-          },
-        });
-        audioChunksRef.current = [];
-        const mediaRecorder = new (window as any).MediaRecorder(stream);
-        mediaRecorderRef.current = mediaRecorder;
-
-        mediaRecorder.ondataavailable = (e: any) => {
-          if (e.data && e.data.size > 0) {
-            audioChunksRef.current.push(e.data);
-          }
-        };
-
-        mediaRecorder.start(100);
+      const perm = await Audio.requestPermissionsAsync();
+      if (!perm.granted) {
+        setHasPermission(false);
+        setRecordingState("error");
+        setErrorMessage("Microphone permission denied.");
+        return;
       }
+      setHasPermission(true);
+
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: true,
+        playsInSilentModeIOS: true,
+      });
+
+      const recording = new Audio.Recording();
+      await recording.prepareToRecordAsync(Audio.RecordingOptionsPresets.HIGH_QUALITY);
+      await recording.startAsync();
+      recordingRef.current = recording;
+
+      setRecordingState("recording");
+      setVoiceActive(true);
     } catch (err: any) {
       console.error("Recording start error:", err);
       setRecordingState("error");
-      setErrorMessage("Microphone access failed.");
+      setErrorMessage(err.message || "Failed to start microphone.");
       setVoiceActive(false);
     }
   };
@@ -124,44 +124,37 @@ export default function IntercomScreen() {
     const durationMs = Date.now() - recordStartTimeRef.current;
 
     try {
-      const mediaRecorder = mediaRecorderRef.current;
-      if (mediaRecorder && mediaRecorder.state !== "inactive") {
-        mediaRecorder.onstop = async () => {
-          const audioBlob = new Blob(audioChunksRef.current, { type: mediaRecorder.mimeType || "audio/webm" });
-          const stream = mediaRecorder.stream;
-          if (stream) {
-            stream.getTracks().forEach((track: any) => track.stop());
+      const recording = recordingRef.current;
+      if (recording) {
+        await recording.stopAndUnloadAsync();
+        const uri = recording.getURI();
+        recordingRef.current = null;
+
+        if (uri) {
+          // Read recorded audio into base64
+          const base64 = await FileSystem.readAsStringAsync(uri, {
+            encoding: FileSystem.EncodingType.Base64,
+          });
+
+          // Send to desktop controller
+          const res = await sendVoiceAudio({
+            dataBase64: base64,
+            format: "m4a",
+            durationMs,
+          });
+
+          if (res.ok) {
+            setRecordingState("confirmed");
+            setTranscriptResult(res.text || "Command recognized on desktop");
+          } else {
+            setRecordingState("error");
+            setErrorMessage(res.error || "Desktop voice command failed");
           }
-
-          // Convert Blob to ArrayBuffer -> Int16 PCM or Base64
-          const reader = new FileReader();
-          reader.onloadend = async () => {
-            const dataUrl = reader.result as string;
-            const base64Data = dataUrl.includes("base64,") ? dataUrl.split("base64,")[1] : dataUrl;
-
-            // Transmit to desktop
-            const res = await sendVoiceAudio({
-              dataBase64: base64Data,
-              format: mediaRecorder.mimeType || "webm",
-              durationMs,
-            });
-
-            if (res.ok) {
-              setRecordingState("confirmed");
-              setTranscriptResult(res.text || "Command recognized on desktop");
-            } else {
-              setRecordingState("error");
-              setErrorMessage(res.error || "Desktop voice command failed");
-            }
-          };
-          reader.readAsDataURL(audioBlob);
-        };
-        mediaRecorder.stop();
-      } else {
-        // Mock / Fallback if audio recorder not active
-        setTimeout(() => {
+        } else {
           setRecordingState("idle");
-        }, 500);
+        }
+      } else {
+        setRecordingState("idle");
       }
     } catch (err: any) {
       console.error("Recording stop error:", err);
@@ -220,29 +213,41 @@ export default function IntercomScreen() {
         {/* Central PTT Hold Button */}
         <View className="items-center justify-center my-8">
           <Animated.View
-            style={{
-              transform: [{ scale: pulseAnim }],
-            }}
-            className={`w-52 h-52 rounded-full items-center justify-center border-4 ${
-              recordingState === "recording"
-                ? "bg-red-600/30 border-red-500 shadow-2xl shadow-red-500/50"
-                : recordingState === "sending"
-                ? "bg-blue-600/20 border-blue-400"
-                : "bg-white/5 border-white/15"
-            }`}
+            style={[
+              styles.pulseRing,
+              {
+                transform: [{ scale: pulseAnim }],
+                backgroundColor:
+                  recordingState === "recording"
+                    ? "rgba(220, 38, 38, 0.25)"
+                    : recordingState === "sending"
+                    ? "rgba(37, 99, 235, 0.2)"
+                    : "rgba(255, 255, 255, 0.05)",
+                borderColor:
+                  recordingState === "recording"
+                    ? "#ef4444"
+                    : recordingState === "sending"
+                    ? "#60a5fa"
+                    : "rgba(255, 255, 255, 0.15)",
+              },
+            ]}
           >
             <TouchableOpacity
               activeOpacity={0.8}
               onPressIn={startRecording}
               onPressOut={stopRecording}
               disabled={recordingState === "sending"}
-              className={`w-40 h-40 rounded-full items-center justify-center shadow-xl ${
-                recordingState === "recording"
-                  ? "bg-red-600"
-                  : recordingState === "sending"
-                  ? "bg-blue-600"
-                  : "bg-gradient-to-tr bg-blue-600 active:bg-blue-700"
-              }`}
+              style={[
+                styles.pttButton,
+                {
+                  backgroundColor:
+                    recordingState === "recording"
+                      ? "#dc2626"
+                      : recordingState === "sending"
+                      ? "#2563eb"
+                      : "#2563eb",
+                },
+              ]}
             >
               {recordingState === "sending" ? (
                 <ActivityIndicator size="large" color="white" />
@@ -304,3 +309,26 @@ export default function IntercomScreen() {
     </SafeAreaView>
   );
 }
+
+const styles = StyleSheet.create({
+  pulseRing: {
+    width: 208,
+    height: 208,
+    borderRadius: 104,
+    borderWidth: 4,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  pttButton: {
+    width: 160,
+    height: 160,
+    borderRadius: 80,
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.35,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+});
