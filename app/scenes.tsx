@@ -137,8 +137,87 @@ export default function SceneScreen() {
     }
   };
 
-  // Update Page Content
+  // Helper to split raw multi-paragraph or multi-verse lyrics into structured sections
+  const splitLyricsIntoSections = (
+    text: string,
+    currentSceneType: "song" | "text",
+    startIndex = 0
+  ): ScenePage[] | null => {
+    if (!text || typeof text !== "string") return null;
+
+    // Normalize newlines
+    const normalized = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n").trim();
+
+    // Split by double newline or paragraph space
+    const rawBlocks = normalized
+      .split(/\n\s*\n+/)
+      .map((b) => b.trim())
+      .filter((b) => b.length > 0);
+
+    if (rawBlocks.length <= 1) {
+      return null;
+    }
+
+    let verseIndex = 0;
+    let slideIndex = 0;
+
+    return rawBlocks.map((block) => {
+      let label = "";
+      let sectionType: ScenePage["sectionType"] = currentSceneType === "song" ? "verse" : "slide";
+      let content = block;
+
+      if (currentSceneType === "song") {
+        // Look for header patterns like [Verse 1], Verse 1:, [Chorus], Chorus:, [Bridge], Bridge:, (Tag), etc.
+        const headerMatch = block.match(
+          /^(\[|\()?((?:verse|chorus|bridge|tag|pre-chorus|intro|outro|ending)\s*\d*)(?:\]|\))?:?\s*\n?(.*)$/is
+        );
+
+        if (headerMatch) {
+          const rawHeader = headerMatch[2].trim();
+          label = rawHeader.charAt(0).toUpperCase() + rawHeader.slice(1);
+          content = headerMatch[3].trim();
+
+          const lower = rawHeader.toLowerCase();
+          if (lower.includes("chorus")) sectionType = "chorus";
+          else if (lower.includes("bridge")) sectionType = "bridge";
+          else if (lower.includes("tag")) sectionType = "tag";
+          else sectionType = "verse";
+        } else {
+          verseIndex++;
+          label = `Verse ${startIndex + verseIndex}`;
+          sectionType = "verse";
+        }
+      } else {
+        slideIndex++;
+        label = `Slide ${startIndex + slideIndex}`;
+        sectionType = "slide";
+      }
+
+      return {
+        label,
+        sectionType,
+        content: content || block,
+        translation: "",
+      };
+    });
+  };
+
+  // Update Page Content (with instant multi-paragraph paste auto-splitting)
   const handleUpdatePage = (index: number, updates: Partial<ScenePage>) => {
+    if (typeof updates.content === "string") {
+      const splitResult = splitLyricsIntoSections(updates.content, sceneType, index);
+      if (splitResult && splitResult.length > 1) {
+        const next = [...pages];
+        next.splice(index, 1, ...splitResult);
+        setPages(next);
+        setSuccessMessage(
+          `Auto-split into ${splitResult.length} ${sceneType === "song" ? "verses" : "slides"}!`
+        );
+        setTimeout(() => setSuccessMessage(null), 3500);
+        return;
+      }
+    }
+
     const next = [...pages];
     next[index] = { ...next[index], ...updates };
     setPages(next);
@@ -392,6 +471,13 @@ export default function SceneScreen() {
               </TouchableOpacity>
             </View>
           )}
+        </View>
+
+        {/* Auto-Split Hint */}
+        <View style={styles.autoSplitTip}>
+          <Text style={styles.autoSplitTipText}>
+            💡 Tip: Pasting multi-verse lyrics with blank lines automatically splits into individual verses.
+          </Text>
         </View>
 
         {/* Section / Slide Cards */}
@@ -784,5 +870,19 @@ const styles = StyleSheet.create({
     color: "#60A5FA",
     fontSize: 13,
     fontWeight: "bold",
+  },
+  autoSplitTip: {
+    backgroundColor: "rgba(255,255,255,0.03)",
+    borderColor: "rgba(255,255,255,0.06)",
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    marginBottom: 12,
+  },
+  autoSplitTipText: {
+    fontSize: 11,
+    color: "rgba(255,255,255,0.45)",
+    fontStyle: "italic",
   },
 });
