@@ -277,7 +277,6 @@ export default function IntercomScreen() {
     setTranscriptResult(null);
     setErrorMessage(null);
     recordStartTimeRef.current = Date.now();
-
     try {
       if (Platform.OS === "web") {
         if (typeof navigator !== "undefined" && navigator.mediaDevices?.getUserMedia) {
@@ -370,6 +369,8 @@ export default function IntercomScreen() {
           } catch (stopErr: any) {
             console.warn("recorder.stop error:", stopErr?.message);
           }
+          // On Android, allow 150ms for native audio engine to write complete m4a atom to disk
+          await new Promise((r) => setTimeout(r, 150));
           const uri = recorder.uri;
           if (uri) {
             base64Audio = await readAudioUriToBase64(uri);
