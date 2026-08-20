@@ -33,6 +33,7 @@ import {
   Waveform,
 } from "phosphor-react-native";
 import { useSocketStore } from "../store/socketStore";
+import IncomingIntercomPlayer from "../components/IncomingIntercomPlayer";
 
 type IntercomMode = "peers" | "controller" | "mic";
 
@@ -540,21 +541,8 @@ export default function IntercomScreen() {
       </View>
 
       <ScrollView contentContainerStyle={styles.scrollContent} style={styles.scrollView}>
-        {/* Incoming Intercom Message Notification */}
-        {incomingIntercom && (
-          <View style={styles.incomingCard}>
-            <View style={styles.incomingLeft}>
-              <Waveform size={24} color="#C084FC" weight="duotone" />
-              <View style={{ flex: 1 }}>
-                <Text style={styles.incomingTag}>Incoming Voice Message</Text>
-                <Text style={styles.incomingSender}>From: {incomingIntercom.fromName}</Text>
-              </View>
-            </View>
-            <TouchableOpacity onPress={clearIncomingIntercom} style={styles.dismissButton}>
-              <Text style={styles.dismissText}>Dismiss</Text>
-            </TouchableOpacity>
-          </View>
-        )}
+        {/* Incoming Intercom Message Player */}
+        <IncomingIntercomPlayer isBanner={false} />
 
         {/* ── Category 1: Speak to Other Users ── */}
         {activeMode === "peers" && (
