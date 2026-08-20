@@ -82,11 +82,11 @@ export default function Dashboard() {
     },
     {
       id: "scenes",
-      label: "Scenes & Songs",
-      icon: MusicNotes,
+      label: "Scene",
+      icon: SquaresFour,
       gradient: ["#FF512F", "#DD2476"], // Vibrant Coral/Magenta Gradient
       iconColor: "#ffffff",
-      description: "Lyrics & Liturgy",
+      description: "Create & Share",
     },
     {
       id: "bible",

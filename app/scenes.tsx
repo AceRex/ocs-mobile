@@ -9,7 +9,6 @@ import {
   ActivityIndicator,
   StatusBar,
   StyleSheet,
-  Platform,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
@@ -17,7 +16,6 @@ import {
   ArrowLeft,
   MusicNotes,
   Article,
-  BookBookmark,
   Plus,
   Trash,
   PaperPlaneTilt,
@@ -25,8 +23,6 @@ import {
   Microphone,
   CaretUp,
   CaretDown,
-  Sparkle,
-  Eye,
   TextT,
   TextAlignCenter,
   TextAlignLeft,
@@ -38,15 +34,15 @@ interface ScenePage {
   label: string;
   content: string;
   translation?: string;
-  sectionType?: "verse" | "chorus" | "bridge" | "tag" | "ending" | "text";
+  sectionType?: "verse" | "chorus" | "bridge" | "tag" | "ending" | "slide" | "page" | "text";
 }
 
-export default function ScenesScreen() {
+export default function SceneScreen() {
   const router = useRouter();
   const { isConnected, isPaired, sendScene } = useSocketStore();
 
   const [name, setName] = useState("");
-  const [sceneType, setSceneType] = useState<"song" | "text" | "scripture">("song");
+  const [sceneType, setSceneType] = useState<"song" | "text">("song");
   const [navMode, setNavMode] = useState<"read_along" | "manual">("read_along");
   const [fontSize, setFontSize] = useState<number>(36);
   const [textAlign, setTextAlign] = useState<"center" | "left" | "right">("center");
@@ -62,29 +58,83 @@ export default function ScenesScreen() {
 
   const [isSending, setIsSending] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
-  const [previewPageIndex, setPreviewPageIndex] = useState<number | null>(null);
+
+  // Handle switching scene types with appropriate labeling
+  const handleSelectType = (newType: "song" | "text") => {
+    if (newType === sceneType) return;
+    setSceneType(newType);
+
+    if (newType === "text") {
+      setNavMode("manual");
+      // Convert song labels to slide labels
+      setPages(
+        pages.map((p, idx) => ({
+          ...p,
+          sectionType: "slide",
+          label: p.label.toLowerCase().includes("verse") || p.label.toLowerCase().includes("chorus") || p.label.toLowerCase().includes("bridge")
+            ? `Slide ${idx + 1}`
+            : p.label || `Slide ${idx + 1}`,
+        }))
+      );
+    } else {
+      setNavMode("read_along");
+      // Convert slide labels to song labels
+      setPages(
+        pages.map((p, idx) => ({
+          ...p,
+          sectionType: "verse",
+          label: p.label.toLowerCase().includes("slide") || p.label.toLowerCase().includes("page")
+            ? (idx === 0 ? "Verse 1" : idx === 1 ? "Chorus" : `Verse ${idx}`)
+            : p.label || `Verse ${idx + 1}`,
+        }))
+      );
+    }
+  };
 
   // Add Page / Section
-  const handleAddPage = (type: "verse" | "chorus" | "bridge" | "tag" | "ending" | "text" = "verse") => {
-    let label = "Verse 1";
-    if (type === "chorus") label = "Chorus";
-    else if (type === "bridge") label = "Bridge";
-    else if (type === "tag") label = "Tag";
-    else if (type === "ending") label = "Ending";
-    else {
-      const verseCount = pages.filter((p) => p.sectionType === "verse").length + 1;
-      label = `Verse ${verseCount}`;
-    }
+  const handleAddSection = (preset?: string) => {
+    if (sceneType === "song") {
+      let label = preset || "Verse";
+      let sectionType: ScenePage["sectionType"] = "verse";
 
-    setPages([
-      ...pages,
-      {
-        label,
-        sectionType: type,
-        content: "",
-        translation: "",
-      },
-    ]);
+      if (preset === "Chorus") {
+        label = "Chorus";
+        sectionType = "chorus";
+      } else if (preset === "Bridge") {
+        label = "Bridge";
+        sectionType = "bridge";
+      } else if (preset === "Tag") {
+        label = "Tag";
+        sectionType = "tag";
+      } else {
+        const verseCount = pages.filter((p) => p.sectionType === "verse").length + 1;
+        label = `Verse ${verseCount}`;
+        sectionType = "verse";
+      }
+
+      setPages([
+        ...pages,
+        {
+          label,
+          sectionType,
+          content: "",
+          translation: "",
+        },
+      ]);
+    } else {
+      // Strictly text slides
+      const slideNum = pages.length + 1;
+      const label = preset ? `${preset} ${slideNum}` : `Slide ${slideNum}`;
+      setPages([
+        ...pages,
+        {
+          label,
+          sectionType: "slide",
+          content: "",
+          translation: "",
+        },
+      ]);
+    }
   };
 
   // Update Page Content
@@ -97,11 +147,10 @@ export default function ScenesScreen() {
   // Delete Page
   const handleDeletePage = (index: number) => {
     if (pages.length <= 1) {
-      Alert.alert("Required", "A scene must contain at least one section.");
+      Alert.alert("Required", "A scene must contain at least one section or slide.");
       return;
     }
     setPages(pages.filter((_, i) => i !== index));
-    if (previewPageIndex === index) setPreviewPageIndex(null);
   };
 
   // Reorder Pages
@@ -118,13 +167,21 @@ export default function ScenesScreen() {
   // Send Scene to Desktop Controller
   const handleShareToDesktop = async () => {
     if (!name.trim()) {
-      Alert.alert("Missing Title", "Please enter a name or title for this song/scene.");
+      Alert.alert(
+        "Missing Title",
+        sceneType === "song" ? "Please enter a song title." : "Please enter a scene name."
+      );
       return;
     }
 
     const hasAnyContent = pages.some((p) => p.content.trim().length > 0);
     if (!hasAnyContent) {
-      Alert.alert("Empty Scene", "Please enter lyrics or text in at least one section.");
+      Alert.alert(
+        "Empty Scene",
+        sceneType === "song"
+          ? "Please enter lyrics in at least one section."
+          : "Please enter text in at least one slide."
+      );
       return;
     }
 
@@ -142,8 +199,8 @@ export default function ScenesScreen() {
       sceneType,
       navMode: sceneType === "song" ? navMode : "manual",
       pages: pages.map((p, idx) => ({
-        label: p.label || `Section ${idx + 1}`,
-        sectionType: p.sectionType || "verse",
+        label: p.label || (sceneType === "song" ? `Section ${idx + 1}` : `Slide ${idx + 1}`),
+        sectionType: p.sectionType || (sceneType === "song" ? "verse" : "slide"),
         content: p.content.trim(),
         translation: (p.translation || "").trim(),
       })),
@@ -160,7 +217,7 @@ export default function ScenesScreen() {
     try {
       const res = await sendScene(scenePayload);
       if (res.ok) {
-        setSuccessMessage(`"${name.trim()}" shared to desktop!`);
+        setSuccessMessage(`"${name.trim()}" shared to desktop controller!`);
         setTimeout(() => setSuccessMessage(null), 4000);
       } else {
         Alert.alert("Error", res.error || "Could not share scene with desktop.");
@@ -182,8 +239,10 @@ export default function ScenesScreen() {
           <ArrowLeft size={20} color="white" />
         </TouchableOpacity>
         <View style={{ flex: 1 }}>
-          <Text style={styles.headerTitle}>Scene Creator</Text>
-          <Text style={styles.headerSubtitle}>Songs, Liturgy & Lyrics</Text>
+          <Text style={styles.headerTitle}>Scene</Text>
+          <Text style={styles.headerSubtitle}>
+            {sceneType === "song" ? "Create Song & Lyrics" : "Create Text & Slide Scene"}
+          </Text>
         </View>
         <TouchableOpacity
           onPress={handleShareToDesktop}
@@ -212,57 +271,53 @@ export default function ScenesScreen() {
 
         {/* Title Input */}
         <View style={styles.sectionCard}>
-          <Text style={styles.fieldLabel}>TITLE / SONG NAME</Text>
+          <Text style={styles.fieldLabel}>
+            {sceneType === "song" ? "SONG TITLE" : "SCENE NAME"}
+          </Text>
           <TextInput
             value={name}
             onChangeText={setName}
-            placeholder="e.g. Way Maker, Opening Prayer, Sermon"
+            placeholder={
+              sceneType === "song"
+                ? "e.g. Way Maker, Amazing Grace, 10,000 Reasons"
+                : "e.g. Welcome & Announcements, Sermon Notes, Closing"
+            }
             placeholderTextColor="#666"
             style={styles.titleInput}
           />
         </View>
 
-        {/* Category Pills */}
+        {/* Category Pills (Song vs Text) */}
         <View style={styles.sectionCard}>
-          <Text style={styles.fieldLabel}>CATEGORY & TYPE</Text>
+          <Text style={styles.fieldLabel}>SCENE TYPE</Text>
           <View style={styles.pillRow}>
             <TouchableOpacity
-              onPress={() => setSceneType("song")}
+              onPress={() => handleSelectType("song")}
               style={[styles.typePill, sceneType === "song" ? styles.typePillActiveSong : null]}
             >
               <MusicNotes size={16} color={sceneType === "song" ? "white" : "#999"} weight="bold" />
               <Text style={[styles.typePillText, sceneType === "song" ? styles.typePillTextActive : null]}>
-                Song Lyrics
+                Song
               </Text>
             </TouchableOpacity>
 
             <TouchableOpacity
-              onPress={() => setSceneType("text")}
+              onPress={() => handleSelectType("text")}
               style={[styles.typePill, sceneType === "text" ? styles.typePillActiveText : null]}
             >
               <Article size={16} color={sceneType === "text" ? "white" : "#999"} weight="bold" />
               <Text style={[styles.typePillText, sceneType === "text" ? styles.typePillTextActive : null]}>
-                Text / Slides
-              </Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              onPress={() => setSceneType("scripture")}
-              style={[styles.typePill, sceneType === "scripture" ? styles.typePillActiveScripture : null]}
-            >
-              <BookBookmark size={16} color={sceneType === "scripture" ? "white" : "#999"} weight="bold" />
-              <Text style={[styles.typePillText, sceneType === "scripture" ? styles.typePillTextActive : null]}>
-                Scripture
+                Text
               </Text>
             </TouchableOpacity>
           </View>
 
-          {/* Sing-Along Alignment Mode */}
+          {/* Song Voice Sync Alignment Toggle (Strictly for Song scenes) */}
           {sceneType === "song" && (
             <View style={styles.alignModeRow}>
               <View style={{ flex: 1 }}>
                 <Text style={styles.alignModeTitle}>Sing-Along Voice Sync</Text>
-                <Text style={styles.alignModeDesc}>Highlights words live as choir/worship team sings</Text>
+                <Text style={styles.alignModeDesc}>Highlights words live as worship team sings</Text>
               </View>
               <TouchableOpacity
                 onPress={() => setNavMode(navMode === "read_along" ? "manual" : "read_along")}
@@ -310,33 +365,49 @@ export default function ScenesScreen() {
           </View>
         </View>
 
-        {/* Sections / Pages Header */}
+        {/* Sections Header */}
         <View style={styles.sectionsHeader}>
-          <Text style={styles.fieldLabel}>SECTIONS & LYRICS ({pages.length})</Text>
-          <View style={styles.presetButtons}>
-            <TouchableOpacity onPress={() => handleAddPage("verse")} style={styles.presetButton}>
-              <Text style={styles.presetButtonText}>+ Verse</Text>
-            </TouchableOpacity>
-            <TouchableOpacity onPress={() => handleAddPage("chorus")} style={styles.presetButton}>
-              <Text style={styles.presetButtonText}>+ Chorus</Text>
-            </TouchableOpacity>
-            <TouchableOpacity onPress={() => handleAddPage("bridge")} style={styles.presetButton}>
-              <Text style={styles.presetButtonText}>+ Bridge</Text>
-            </TouchableOpacity>
-          </View>
+          <Text style={styles.fieldLabel}>
+            {sceneType === "song" ? `SECTIONS & LYRICS (${pages.length})` : `SLIDES & PAGES (${pages.length})`}
+          </Text>
+          {sceneType === "song" ? (
+            <View style={styles.presetButtons}>
+              <TouchableOpacity onPress={() => handleAddSection("Verse")} style={styles.presetButton}>
+                <Text style={styles.presetButtonText}>+ Verse</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => handleAddSection("Chorus")} style={styles.presetButton}>
+                <Text style={styles.presetButtonText}>+ Chorus</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => handleAddSection("Bridge")} style={styles.presetButton}>
+                <Text style={styles.presetButtonText}>+ Bridge</Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <View style={styles.presetButtons}>
+              <TouchableOpacity onPress={() => handleAddSection("Slide")} style={styles.presetButton}>
+                <Text style={styles.presetButtonText}>+ Slide</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => handleAddSection("Page")} style={styles.presetButton}>
+                <Text style={styles.presetButtonText}>+ Page</Text>
+              </TouchableOpacity>
+            </View>
+          )}
         </View>
 
-        {/* Section Cards */}
+        {/* Section / Slide Cards */}
         {pages.map((page, idx) => (
           <View key={idx} style={styles.pageCard}>
-            {/* Page Card Header */}
+            {/* Card Header */}
             <View style={styles.pageCardHeader}>
               <TextInput
                 value={page.label}
                 onChangeText={(text) => handleUpdatePage(idx, { label: text })}
-                placeholder="Section Name"
+                placeholder={sceneType === "song" ? "Section Name" : "Slide Title"}
                 placeholderTextColor="#666"
-                style={styles.pageLabelInput}
+                style={[
+                  styles.pageLabelInput,
+                  sceneType === "text" ? { color: "#60A5FA" } : null,
+                ]}
               />
 
               <View style={styles.pageActions}>
@@ -360,11 +431,15 @@ export default function ScenesScreen() {
               </View>
             </View>
 
-            {/* Lyrics / Text Input */}
+            {/* Text / Lyrics Input */}
             <TextInput
               value={page.content}
               onChangeText={(text) => handleUpdatePage(idx, { content: text })}
-              placeholder="Enter lyrics or presentation text here..."
+              placeholder={
+                sceneType === "song"
+                  ? "Enter song lyrics here..."
+                  : "Enter slide text or announcement content..."
+              }
               placeholderTextColor="#555"
               multiline
               numberOfLines={4}
@@ -374,21 +449,26 @@ export default function ScenesScreen() {
               ]}
             />
 
-            {/* Secondary / Translation Input */}
+            {/* Optional Subtitle / Translation */}
             <TextInput
               value={page.translation || ""}
               onChangeText={(text) => handleUpdatePage(idx, { translation: text })}
-              placeholder="Optional subtitle / translation..."
+              placeholder="Optional subtitle / secondary text..."
               placeholderTextColor="#444"
               style={styles.translationInput}
             />
           </View>
         ))}
 
-        {/* Add Another Section Button */}
-        <TouchableOpacity onPress={() => handleAddPage("verse")} style={styles.addSectionButton}>
+        {/* Add Another Section / Slide Button */}
+        <TouchableOpacity
+          onPress={() => handleAddSection(sceneType === "song" ? "Verse" : "Slide")}
+          style={styles.addSectionButton}
+        >
           <Plus size={16} color="#60A5FA" weight="bold" />
-          <Text style={styles.addSectionText}>Add Another Section</Text>
+          <Text style={styles.addSectionText}>
+            {sceneType === "song" ? "Add Another Section" : "Add Another Slide"}
+          </Text>
         </TouchableOpacity>
 
         {/* Bottom Spacing */}
@@ -508,11 +588,8 @@ const styles = StyleSheet.create({
   typePillActiveText: {
     backgroundColor: "#2563EB",
   },
-  typePillActiveScripture: {
-    backgroundColor: "#9333EA",
-  },
   typePillText: {
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: "bold",
     color: "rgba(255,255,255,0.6)",
   },
