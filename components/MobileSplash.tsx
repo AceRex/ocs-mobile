@@ -41,7 +41,7 @@ export default function MobileSplash({ onFinish, minDurationMs = 1200 }: MobileS
     <Animated.View style={[styles.container, { opacity: fadeAnim }]}>
       <LinearGradient
         colors={["#0B0814", "#161026", "#0B0814"]}
-        style={StyleSheet.absoluteFillObject}
+        style={StyleSheet.absoluteFill}
       />
       <Animated.View style={[styles.content, { transform: [{ scale: scaleAnim }] }]}>
         <LinearGradient
@@ -66,7 +66,11 @@ export default function MobileSplash({ onFinish, minDurationMs = 1200 }: MobileS
 
 const styles = StyleSheet.create({
   container: {
-    ...StyleSheet.absoluteFillObject,
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
     zIndex: 9999,
     alignItems: "center",
     justifyContent: "center",

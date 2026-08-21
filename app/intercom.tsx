@@ -42,6 +42,7 @@ export default function IntercomScreen() {
   const {
     isConnected,
     isPaired,
+    isAdmin,
     setVoiceActive,
     sendVoiceAudio,
     peers,
@@ -65,6 +66,16 @@ export default function IntercomScreen() {
 
   // Universal helper to read audio URI to base64
   const readAudioUriToBase64 = async (uri: string): Promise<string | null> => {
+    if (Platform.OS !== "web") {
+      try {
+        return await FileSystem.readAsStringAsync(uri, {
+          encoding: FileSystem.EncodingType.Base64,
+        });
+      } catch (fsErr) {
+        console.error("[readAudioUriToBase64] FileSystem failed:", fsErr);
+      }
+    }
+
     try {
       const response = await fetch(uri);
       const blob = await response.blob();
@@ -85,17 +96,9 @@ export default function IntercomScreen() {
         return parts.length > 1 ? parts[1] : parts[0];
       }
     } catch (e) {
-      console.warn("[readAudioUriToBase64] Universal fetch notice:", e);
+      console.warn("[readAudioUriToBase64] Fetch/FileReader notice:", e);
     }
-
-    try {
-      return await FileSystem.readAsStringAsync(uri, {
-        encoding: FileSystem.EncodingType.Base64,
-      });
-    } catch (fsErr) {
-      console.error("[readAudioUriToBase64] FileSystem failed:", fsErr);
-      return null;
-    }
+    return null;
   };
 
   const pulseAnim = useRef(new Animated.Value(1)).current;
@@ -275,6 +278,16 @@ export default function IntercomScreen() {
       return;
     }
 
+    if (activeMode !== "peers" && !isAdmin) {
+      setRecordingState("error");
+      setErrorMessage("Admin privilege required for Controller and Wireless Mic modes.");
+      Alert.alert(
+        "Admin Access Required",
+        "Controller Voice Prompts and Wireless Mic modes are strictly reserved for Admin devices. Please ask the Desktop Controller operator to grant Admin status in the Remote panel.",
+      );
+      return;
+    }
+
     setTranscriptResult(null);
     setErrorMessage(null);
     recordStartTimeRef.current = Date.now();
@@ -377,6 +390,16 @@ export default function IntercomScreen() {
             base64Audio = await readAudioUriToBase64(uri);
             format = "m4a";
           }
+          // Reset audio routing to loudspeaker after recording session
+          try {
+            await Audio.setAudioModeAsync({
+              allowsRecordingIOS: false,
+              playsInSilentModeIOS: true,
+              staysActiveInBackground: true,
+              shouldDuckAndroid: true,
+              playThroughEarpieceAndroid: false,
+            });
+          } catch (_) {}
         }
       }
 
@@ -507,6 +530,13 @@ export default function IntercomScreen() {
 
         <TouchableOpacity
           onPress={() => {
+            if (!isAdmin) {
+              Alert.alert(
+                "Admin Access Required",
+                "Controller Voice Prompts are strictly reserved for Admin devices. Please ask the desktop operator to assign Admin privileges in the Remote panel.",
+              );
+              return;
+            }
             setActiveMode("controller");
             setTranscriptResult(null);
             setErrorMessage(null);
@@ -514,16 +544,24 @@ export default function IntercomScreen() {
           style={[
             styles.modeButton,
             activeMode === "controller" && styles.modeButtonActiveBlue,
+            !isAdmin && { opacity: 0.55 },
           ]}
         >
           <Sparkle size={16} color={activeMode === "controller" ? "white" : "#9ca3af"} weight="bold" />
           <Text style={[styles.modeText, activeMode === "controller" ? styles.modeTextActive : null]}>
-            2. Controller
+            2. Controller {isAdmin ? "" : "🔒"}
           </Text>
         </TouchableOpacity>
 
         <TouchableOpacity
           onPress={() => {
+            if (!isAdmin) {
+              Alert.alert(
+                "Admin Access Required",
+                "Work as Mic (Live Wireless Microphone) is strictly reserved for Admin devices. Please ask the desktop operator to assign Admin privileges in the Remote panel.",
+              );
+              return;
+            }
             setActiveMode("mic");
             setTranscriptResult(null);
             setErrorMessage(null);
@@ -531,11 +569,12 @@ export default function IntercomScreen() {
           style={[
             styles.modeButton,
             activeMode === "mic" && styles.modeButtonActiveEmerald,
+            !isAdmin && { opacity: 0.55 },
           ]}
         >
           <Broadcast size={16} color={activeMode === "mic" ? "white" : "#9ca3af"} weight="bold" />
           <Text style={[styles.modeText, activeMode === "mic" ? styles.modeTextActive : null]}>
-            3. Work as Mic
+            3. Work as Mic {isAdmin ? "" : "🔒"}
           </Text>
         </TouchableOpacity>
       </View>
@@ -651,7 +690,16 @@ export default function IntercomScreen() {
 
             {/* Mic Toggle Switch */}
             <TouchableOpacity
-              onPress={() => setIsLiveMicActive(!isLiveMicActive)}
+              onPress={() => {
+                if (!isAdmin) {
+                  Alert.alert(
+                    "Admin Access Required",
+                    "Live Wireless Mic is strictly reserved for Admin devices.",
+                  );
+                  return;
+                }
+                setIsLiveMicActive(!isLiveMicActive);
+              }}
               style={[
                 styles.micToggleButton,
                 {

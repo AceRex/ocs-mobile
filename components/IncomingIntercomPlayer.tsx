@@ -26,23 +26,31 @@ export default function IncomingIntercomPlayer({ isBanner = false }: { isBanner?
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const slideAnim = useRef(new Animated.Value(-100)).current;
 
+  // Clean up existing players
+  const cleanupPlayers = (resetState = true) => {
+    if (playerRef.current) {
+      try {
+        playerRef.current.pause();
+        playerRef.current.release();
+      } catch (_) {}
+      playerRef.current = null;
+    }
+    if (webAudioRef.current) {
+      try {
+        webAudioRef.current.pause();
+      } catch (_) {}
+      webAudioRef.current = null;
+    }
+    if (resetState) {
+      setIsPlaying(false);
+      setProgress(0);
+    }
+  };
+
   // Prepare audio whenever a new message arrives
   useEffect(() => {
     if (!incomingIntercom?.audioBase64) {
-      if (playerRef.current) {
-        try {
-          playerRef.current.pause();
-          playerRef.current.release();
-        } catch (_) {}
-        playerRef.current = null;
-      }
-      if (webAudioRef.current) {
-        try {
-          webAudioRef.current.pause();
-        } catch (_) {}
-        webAudioRef.current = null;
-      }
-      setIsPlaying(false);
+      cleanupPlayers(true);
       setAudioUri(null);
       return;
     }
@@ -52,7 +60,7 @@ export default function IncomingIntercomPlayer({ isBanner = false }: { isBanner?
     // Slide banner in
     Animated.spring(slideAnim, {
       toValue: 0,
-      useNativeDriver: true,
+      useNativeDriver: Platform.OS !== "web",
       tension: 50,
       friction: 8,
     }).start();
@@ -60,23 +68,25 @@ export default function IncomingIntercomPlayer({ isBanner = false }: { isBanner?
     const loadAndPlayAudio = async () => {
       try {
         setIsLoading(true);
+        cleanupPlayers(false);
+
         const cleanBase64 = incomingIntercom.audioBase64.includes("base64,")
           ? incomingIntercom.audioBase64.split("base64,")[1]
           : incomingIntercom.audioBase64;
 
-        const ext = incomingIntercom.format || "m4a";
+        let ext = "m4a";
+        const fmt = (incomingIntercom.format || "").toLowerCase();
+        if (fmt.includes("wav")) ext = "wav";
+        else if (fmt.includes("mp3")) ext = "mp3";
+        else if (fmt.includes("aac")) ext = "aac";
+        else if (fmt.includes("webm") || fmt.includes("opus")) ext = "webm";
+        else if (fmt.includes("m4a") || fmt.includes("mp4")) ext = "m4a";
 
         if (Platform.OS === "web") {
-          // Web Browser audio strategy: Use HTML5 Audio directly with data URI
-          const mimeType = ext === "wav" ? "audio/wav" : ext === "mp3" ? "audio/mpeg" : "audio/mp4";
+          // Web Browser HTML5 Audio
+          const mimeType = ext === "wav" ? "audio/wav" : ext === "mp3" ? "audio/mpeg" : ext === "webm" ? "audio/webm" : "audio/mp4";
           const dataUrl = `data:${mimeType};base64,${cleanBase64}`;
           setAudioUri(dataUrl);
-
-          if (webAudioRef.current) {
-            try {
-              webAudioRef.current.pause();
-            } catch (_) {}
-          }
 
           const audio = new Audio(dataUrl);
           webAudioRef.current = audio;
@@ -106,11 +116,11 @@ export default function IncomingIntercomPlayer({ isBanner = false }: { isBanner?
 
           if (autoPlay) {
             audio.play().catch((err) => {
-              console.log("[IncomingIntercomPlayer] Web auto-play notice:", err.message);
+              console.log("[IncomingIntercomPlayer] Web auto-play notice:", err?.message);
             });
           }
         } else {
-          // Native (iOS/Android) strategy: Cache to temp file and use expo-audio
+          // Native Android & iOS (expo-audio)
           const fileUri = `${FileSystem.cacheDirectory}intercom_${Date.now()}.${ext}`;
 
           await FileSystem.writeAsStringAsync(fileUri, cleanBase64, {
@@ -120,43 +130,43 @@ export default function IncomingIntercomPlayer({ isBanner = false }: { isBanner?
           if (!isMounted) return;
           setAudioUri(fileUri);
 
-          await setAudioModeAsync({
-            playsInSilentMode: true,
-            allowsRecording: false,
-          });
+          try {
+            await setAudioModeAsync({
+              playsInSilentMode: true,
+              allowsRecording: false,
+            });
+          } catch (_) {}
 
-          if (playerRef.current) {
-            try {
-              playerRef.current.release();
-            } catch (_) {}
-          }
+          try {
+            const player = createAudioPlayer(fileUri);
+            playerRef.current = player;
 
-          const player = createAudioPlayer({ uri: fileUri });
-          playerRef.current = player;
-
-          player.addListener("playbackStatusUpdate", (status: any) => {
-            if (!isMounted) return;
-            if (status.isLoaded) {
-              if (status.duration > 0) {
-                setProgress(status.currentTime / status.duration);
+            player.addListener("playbackStatusUpdate", (status: any) => {
+              if (!isMounted) return;
+              if (status.isLoaded) {
+                if (status.duration > 0) {
+                  setProgress(status.currentTime / status.duration);
+                }
+                setIsPlaying(status.playing);
+                if (status.currentTime >= status.duration && status.duration > 0) {
+                  setIsPlaying(false);
+                  setProgress(0);
+                }
               }
-              setIsPlaying(status.playing);
-              if (status.currentTime >= status.duration && status.duration > 0) {
-                setIsPlaying(false);
-                setProgress(0);
-              }
+            });
+
+            if (autoPlay) {
+              player.play();
+              setIsPlaying(true);
             }
-          });
+          } catch (playerErr) {
+            console.error("[IncomingIntercomPlayer] expo-audio play error:", playerErr);
+          }
 
           setIsLoading(false);
-
-          if (autoPlay) {
-            player.play();
-            setIsPlaying(true);
-          }
         }
       } catch (err) {
-        console.error("[IncomingIntercomPlayer] Error preparing audio:", err);
+        console.error("[IncomingIntercomPlayer] Error loading audio:", err);
         if (isMounted) {
           setIsLoading(false);
           setIsPlaying(false);
@@ -168,19 +178,7 @@ export default function IncomingIntercomPlayer({ isBanner = false }: { isBanner?
 
     return () => {
       isMounted = false;
-      if (playerRef.current) {
-        try {
-          playerRef.current.pause();
-          playerRef.current.release();
-        } catch (_) {}
-        playerRef.current = null;
-      }
-      if (webAudioRef.current) {
-        try {
-          webAudioRef.current.pause();
-        } catch (_) {}
-        webAudioRef.current = null;
-      }
+      cleanupPlayers(false);
     };
   }, [incomingIntercom]);
 
@@ -239,124 +237,136 @@ export default function IncomingIntercomPlayer({ isBanner = false }: { isBanner?
     }
 
     // Native playback toggle
-    if (!playerRef.current) {
-      if (audioUri) {
-        try {
-          const player = createAudioPlayer({ uri: audioUri });
-          playerRef.current = player;
-          player.addListener("playbackStatusUpdate", (status: any) => {
-            if (status.isLoaded) {
-              if (status.duration > 0) {
-                setProgress(status.currentTime / status.duration);
-              }
-              setIsPlaying(status.playing);
-              if (status.currentTime >= status.duration && status.duration > 0) {
-                setIsPlaying(false);
-                setProgress(0);
-              }
-            }
+    if (playerRef.current) {
+      try {
+        if (isPlaying) {
+          playerRef.current.pause();
+          setIsPlaying(false);
+        } else {
+          await setAudioModeAsync({
+            playsInSilentMode: true,
+            allowsRecording: false,
           });
-          player.play();
+          playerRef.current.play();
           setIsPlaying(true);
-        } catch (e) {
-          console.error("Play error:", e);
         }
+      } catch (err) {
+        console.error("expo-audio toggle error:", err);
       }
-      return;
-    }
-
-    try {
-      if (isPlaying) {
-        playerRef.current.pause();
-        setIsPlaying(false);
-      } else {
-        await setAudioModeAsync({
-          playsInSilentMode: true,
-          allowsRecording: false,
-        });
-        playerRef.current.play();
+    } else if (audioUri) {
+      try {
+        const player = createAudioPlayer(audioUri);
+        playerRef.current = player;
+        player.play();
         setIsPlaying(true);
+      } catch (e) {
+        console.error("expo-audio start error:", e);
       }
-    } catch (err) {
-      console.error("Toggle playback error:", err);
     }
   };
 
   const handleDismiss = () => {
-    if (playerRef.current) {
-      try {
-        playerRef.current.pause();
-        playerRef.current.release();
-      } catch (_) {}
-      playerRef.current = null;
-    }
-    if (webAudioRef.current) {
-      try {
-        webAudioRef.current.pause();
-      } catch (_) {}
-      webAudioRef.current = null;
-    }
-    setIsPlaying(false);
+    cleanupPlayers(true);
     clearIncomingIntercom();
   };
 
-  const containerStyle = isBanner
-    ? [styles.bannerContainer, { transform: [{ translateY: slideAnim }] }]
-    : styles.cardContainer;
+  const handleReplay = async () => {
+    if (Platform.OS === "web" && webAudioRef.current) {
+      webAudioRef.current.currentTime = 0;
+      webAudioRef.current.play().catch((e) => console.log("Replay error:", e));
+      setIsPlaying(true);
+    } else if (playerRef.current) {
+      try {
+        playerRef.current.seekTo(0);
+        playerRef.current.play();
+        setIsPlaying(true);
+      } catch (e) {
+        console.error("expo-audio replay error:", e);
+      }
+    }
+  };
+
+  const timestamp = incomingIntercom.timestamp;
+  const formattedTime = timestamp
+    ? new Date(timestamp).toLocaleTimeString([], {
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+      })
+    : "Live";
 
   return (
-    <Animated.View style={containerStyle}>
-      <View style={styles.headerRow}>
-        <View style={styles.senderBadge}>
-          <Animated.View style={{ transform: [{ scale: pulseAnim }] }}>
-            <SpeakerHigh size={18} color="#C084FC" weight="fill" />
-          </Animated.View>
-          <Text style={styles.senderLabel}>
-            Voice Message from <Text style={styles.senderName}>{incomingIntercom.fromName}</Text>
-          </Text>
-        </View>
-        <TouchableOpacity onPress={handleDismiss} style={styles.closeBtn} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
-          <X size={16} color="#9ca3af" weight="bold" />
-        </TouchableOpacity>
-      </View>
-
-      {/* Playback Controls & Waveform */}
-      <View style={styles.controlRow}>
-        <TouchableOpacity
-          onPress={togglePlayback}
-          disabled={isLoading}
-          style={[styles.playButton, isPlaying && styles.playButtonActive]}
-          activeOpacity={0.8}
+    <Animated.View
+      style={[
+        styles.bannerContainer,
+        isBanner && styles.floatingBanner,
+        { transform: [{ translateY: slideAnim }] },
+      ]}
+    >
+      <View style={styles.contentRow}>
+        {/* Left Icon with Pulse */}
+        <Animated.View
+          style={[
+            styles.iconWrapper,
+            isPlaying && styles.iconPlayingWrapper,
+            { transform: [{ scale: pulseAnim }] },
+          ]}
         >
-          {isLoading ? (
-            <ActivityIndicator size="small" color="white" />
-          ) : isPlaying ? (
-            <Pause size={18} color="white" weight="fill" />
-          ) : (
-            <Play size={18} color="white" weight="fill" />
-          )}
-          <Text style={styles.playButtonText}>{isPlaying ? "Pause" : "Listen Now"}</Text>
-        </TouchableOpacity>
+          <SpeakerHigh
+            size={22}
+            color={isPlaying ? "#34d399" : "#60a5fa"}
+            weight={isPlaying ? "fill" : "bold"}
+          />
+        </Animated.View>
 
-        {/* Progress Wave Indicator */}
-        <View style={styles.waveformContainer}>
-          <View style={styles.waveformTrack}>
-            <View style={[styles.waveformFill, { width: `${Math.max(5, progress * 100)}%` }]} />
+        {/* Sender Info & Progress Bar */}
+        <View style={styles.textContainer}>
+          <View style={styles.headerRow}>
+            <Text style={styles.senderLabel} numberOfLines={1}>
+              {incomingIntercom.fromName || "Intercom Peer"}
+            </Text>
+            <Text style={styles.timestampText}>{formattedTime}</Text>
           </View>
-          <Text style={styles.timeText}>
-            {isPlaying ? "Playing..." : progress > 0 ? "Replay" : "Ready"}
-          </Text>
+
+          {/* Audio Progress Bar */}
+          <View style={styles.progressBarBackground}>
+            <View style={[styles.progressBarFill, { width: `${Math.round(progress * 100)}%` }]} />
+          </View>
+
+          <View style={styles.subRow}>
+            <Text style={styles.statusText}>
+              {isLoading ? "Loading audio…" : isPlaying ? "Playing broadcast…" : "Voice message ready"}
+            </Text>
+            <Text style={styles.progressPercent}>{Math.round(progress * 100)}%</Text>
+          </View>
         </View>
 
-        {/* Auto Play Toggle */}
-        <TouchableOpacity
-          onPress={() => setAutoPlay(!autoPlay)}
-          style={[styles.autoPlayPill, autoPlay && styles.autoPlayPillActive]}
-        >
-          <Text style={[styles.autoPlayText, autoPlay && styles.autoPlayTextActive]}>
-            Auto: {autoPlay ? "ON" : "OFF"}
-          </Text>
-        </TouchableOpacity>
+        {/* Controls: Play/Pause, Replay, Dismiss */}
+        <View style={styles.controlsRow}>
+          {isLoading ? (
+            <ActivityIndicator size="small" color="#60a5fa" style={styles.controlBtn} />
+          ) : (
+            <TouchableOpacity
+              onPress={togglePlayback}
+              style={[styles.controlBtn, isPlaying ? styles.pauseBtn : styles.playBtn]}
+              activeOpacity={0.8}
+            >
+              {isPlaying ? (
+                <Pause size={16} color="#ffffff" weight="fill" />
+              ) : (
+                <Play size={16} color="#ffffff" weight="fill" />
+              )}
+            </TouchableOpacity>
+          )}
+
+          <TouchableOpacity onPress={handleReplay} style={styles.iconBtn} activeOpacity={0.7}>
+            <ArrowsClockwise size={18} color="rgba(255,255,255,0.7)" weight="bold" />
+          </TouchableOpacity>
+
+          <TouchableOpacity onPress={handleDismiss} style={styles.iconBtn} activeOpacity={0.7}>
+            <X size={18} color="rgba(255,255,255,0.6)" weight="bold" />
+          </TouchableOpacity>
+        </View>
       </View>
     </Animated.View>
   );
@@ -364,121 +374,121 @@ export default function IncomingIntercomPlayer({ isBanner = false }: { isBanner?
 
 const styles = StyleSheet.create({
   bannerContainer: {
-    position: "absolute",
-    top: Platform.OS === "ios" ? 50 : 25,
-    left: 16,
-    right: 16,
-    zIndex: 9999,
-    backgroundColor: "#1e1b4b", // deep indigo
-    borderRadius: 16,
-    padding: 14,
-    borderWidth: 1.5,
-    borderColor: "#a855f7",
-    shadowColor: "#a855f7",
+    backgroundColor: "#161520",
+    borderWidth: 1,
+    borderColor: "rgba(96, 165, 250, 0.3)",
+    borderRadius: 18,
+    padding: 12,
+    marginHorizontal: 16,
+    marginVertical: 8,
+    shadowColor: "#60a5fa",
     shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.45,
-    shadowRadius: 10,
-    elevation: 10,
+    shadowOpacity: 0.25,
+    shadowRadius: 12,
+    elevation: 8,
   },
-  cardContainer: {
-    backgroundColor: "#1e1b4b",
-    borderRadius: 16,
-    padding: 14,
-    marginBottom: 16,
-    borderWidth: 1.5,
-    borderColor: "#a855f7",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 6,
-    elevation: 6,
+  floatingBanner: {
+    position: "absolute",
+    top: Platform.OS === "ios" ? 50 : 20,
+    left: 0,
+    right: 0,
+    zIndex: 9999,
   },
-  headerRow: {
+  contentRow: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: 10,
+    gap: 12,
   },
-  senderBadge: {
-    flexDirection: "row",
+  iconWrapper: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: "rgba(96, 165, 250, 0.15)",
+    borderWidth: 1,
+    borderColor: "rgba(96, 165, 250, 0.3)",
     alignItems: "center",
-    gap: 8,
-    flex: 1,
+    justifyContent: "center",
   },
-  senderLabel: {
-    color: "#e2e8f0",
-    fontSize: 13,
-    fontWeight: "600",
+  iconPlayingWrapper: {
+    backgroundColor: "rgba(52, 211, 153, 0.15)",
+    borderColor: "rgba(52, 211, 153, 0.4)",
   },
-  senderName: {
-    color: "#f472b6", // pink-400
-    fontWeight: "bold",
-  },
-  closeBtn: {
-    padding: 4,
-    borderRadius: 12,
-    backgroundColor: "rgba(255,255,255,0.08)",
-  },
-  controlRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-  },
-  playButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    backgroundColor: "#7c3aed",
-    paddingVertical: 8,
-    paddingHorizontal: 14,
-    borderRadius: 20,
-  },
-  playButtonActive: {
-    backgroundColor: "#ec4899",
-  },
-  playButtonText: {
-    color: "white",
-    fontSize: 13,
-    fontWeight: "bold",
-  },
-  waveformContainer: {
+  textContainer: {
     flex: 1,
     gap: 4,
   },
-  waveformTrack: {
-    height: 6,
-    backgroundColor: "rgba(255,255,255,0.15)",
-    borderRadius: 3,
-    overflow: "hidden",
+  headerRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
   },
-  waveformFill: {
-    height: "100%",
-    backgroundColor: "#c084fc",
-    borderRadius: 3,
+  senderLabel: {
+    color: "#ffffff",
+    fontSize: 13,
+    fontWeight: "800",
+    letterSpacing: -0.2,
+    flex: 1,
+    marginRight: 6,
   },
-  timeText: {
-    color: "#94a3b8",
+  timestampText: {
+    color: "rgba(255, 255, 255, 0.4)",
     fontSize: 10,
     fontWeight: "600",
+    fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace",
   },
-  autoPlayPill: {
-    paddingVertical: 4,
-    paddingHorizontal: 8,
-    borderRadius: 10,
-    backgroundColor: "rgba(255,255,255,0.08)",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.15)",
+  progressBarBackground: {
+    height: 4,
+    backgroundColor: "rgba(255, 255, 255, 0.1)",
+    borderRadius: 2,
+    overflow: "hidden",
+    marginTop: 2,
   },
-  autoPlayPillActive: {
-    backgroundColor: "rgba(168, 85, 247, 0.25)",
-    borderColor: "#a855f7",
+  progressBarFill: {
+    height: "100%",
+    backgroundColor: "#34d399",
+    borderRadius: 2,
   },
-  autoPlayText: {
-    color: "#94a3b8",
+  subRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  statusText: {
+    color: "rgba(255, 255, 255, 0.5)",
+    fontSize: 10,
+    fontWeight: "500",
+  },
+  progressPercent: {
+    color: "#34d399",
     fontSize: 10,
     fontWeight: "700",
   },
-  autoPlayTextActive: {
-    color: "#e9d5ff",
+  controlsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  controlBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  playBtn: {
+    backgroundColor: "#2563eb",
+  },
+  pauseBtn: {
+    backgroundColor: "#059669",
+  },
+  iconBtn: {
+    padding: 6,
+    borderRadius: 12,
+    backgroundColor: "rgba(255, 255, 255, 0.06)",
   },
 });
