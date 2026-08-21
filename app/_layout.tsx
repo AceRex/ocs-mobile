@@ -3,6 +3,7 @@ import { StatusBar } from "expo-status-bar";
 import "react-native-reanimated";
 import "../global.css";
 import IncomingIntercomPlayer from "../components/IncomingIntercomPlayer";
+import MobileSplash from "../components/MobileSplash";
 
 export const unstable_settings = {
   // Ensure that reloading on `/modal` keeps a back button present.
@@ -12,6 +13,7 @@ export const unstable_settings = {
 export default function RootLayout() {
   return (
     <>
+      <MobileSplash minDurationMs={1200} />
       <IncomingIntercomPlayer isBanner={true} />
       <Stack screenOptions={{ headerShown: false }}>
         <Stack.Screen name="index" />
