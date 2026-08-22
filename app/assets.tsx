@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import {
   View,
   Text,
@@ -8,6 +8,8 @@ import {
   ActivityIndicator,
   Image,
   Platform,
+  Animated,
+  Modal,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
@@ -25,6 +27,7 @@ import {
   XCircle,
   WarningCircle,
   Files,
+  Check,
 } from "phosphor-react-native";
 import { useSocketStore } from "../store/socketStore";
 
@@ -37,7 +40,8 @@ export default function AssetsScreen() {
     size: number;
     type: "image" | "video" | "audio" | "presentation" | "media";
     mimeType: string;
-    dataBase64: string;
+    uri: string;
+    dataBase64?: string;
     previewUri?: string;
   } | null>(null);
 
@@ -47,45 +51,113 @@ export default function AssetsScreen() {
     success?: boolean;
     message?: string;
   } | null>(null);
+  const [successModalVisible, setSuccessModalVisible] = useState(false);
+  const [successModalData, setSuccessModalData] = useState({
+    title: "Successful",
+    subtitle: "Your asset has been successfully transferred to the desktop controller.",
+  });
+
+  const slideAnim = useRef(new Animated.Value(450)).current;
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (successModalVisible) {
+      slideAnim.setValue(450);
+      fadeAnim.setValue(0);
+      Animated.parallel([
+        Animated.timing(fadeAnim, {
+          toValue: 1,
+          duration: 250,
+          useNativeDriver: true,
+        }),
+        Animated.spring(slideAnim, {
+          toValue: 0,
+          tension: 65,
+          friction: 9,
+          useNativeDriver: true,
+        }),
+      ]).start();
+    }
+  }, [successModalVisible]);
+
+  const handleCloseSuccessModal = () => {
+    Animated.parallel([
+      Animated.timing(fadeAnim, {
+        toValue: 0,
+        duration: 200,
+        useNativeDriver: true,
+      }),
+      Animated.timing(slideAnim, {
+        toValue: 450,
+        duration: 200,
+        useNativeDriver: true,
+      }),
+    ]).start(() => {
+      setSuccessModalVisible(false);
+    });
+  };
 
   const MAX_BYTES = 50 * 1024 * 1024; // 50MB
 
-  // Universal helper to read URI or file to base64
+  // Universal helper to read URI or file to base64 with native Android ContentResolver support
   const readUriToBase64 = async (uri: string, mimeType?: string): Promise<string> => {
-    // 1. Universal Fetch + Blob + FileReader (Reliably reads Android DocumentPicker cache, iOS & Web)
+    // 1. If it's a file:// path, read directly via FileSystem
+    if (uri.startsWith("file://") || uri.startsWith("/")) {
+      try {
+        const base64 = await FileSystem.readAsStringAsync(uri, {
+          encoding: FileSystem.EncodingType.Base64,
+        });
+        const prefix = mimeType ? `data:${mimeType};base64,` : "data:application/octet-stream;base64,";
+        return `${prefix}${base64}`;
+      } catch (fsErr) {
+        console.warn("[readUriToBase64] Direct file read notice:", fsErr);
+      }
+    }
+
+    // 2. React Native XMLHttpRequest (directly accesses Android ContentResolver for content:// URIs)
     try {
-      const response = await fetch(uri);
-      const blob = await response.blob();
-      const dataUrl: string = await new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onloadend = () => {
-          if (typeof reader.result === "string") {
-            resolve(reader.result);
-          } else {
-            reject(new Error("FileReader did not produce string"));
-          }
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.onload = () => {
+          const blob = xhr.response;
+          const reader = new FileReader();
+          reader.onloadend = () => {
+            if (typeof reader.result === "string") {
+              resolve(reader.result);
+            } else {
+              reject(new Error("FileReader did not produce string"));
+            }
+          };
+          reader.onerror = () => reject(new Error("FileReader failed"));
+          reader.readAsDataURL(blob);
         };
-        reader.onerror = () => reject(new Error("FileReader failed"));
-        reader.readAsDataURL(blob);
+        xhr.onerror = (e) => reject(new Error("XHR content read failed"));
+        xhr.open("GET", uri, true);
+        xhr.responseType = "blob";
+        xhr.send();
       });
+
       if (dataUrl && dataUrl.startsWith("data:")) {
         return dataUrl;
       }
-    } catch (fetchErr) {
-      console.warn("[readUriToBase64] Universal fetch strategy notice:", fetchErr);
+    } catch (xhrErr) {
+      console.warn("[readUriToBase64] XHR ContentResolver notice, trying copy fallback:", xhrErr);
     }
 
-    // 2. Native FileSystem fallback
+    // 3. Fallback: Copy to cacheDirectory and read
     try {
-      const base64 = await FileSystem.readAsStringAsync(uri, {
+      const cachePath = `${FileSystem.cacheDirectory}asset_${Date.now()}`;
+      await FileSystem.copyAsync({ from: uri, to: cachePath });
+      const base64 = await FileSystem.readAsStringAsync(cachePath, {
         encoding: FileSystem.EncodingType.Base64,
       });
       const prefix = mimeType ? `data:${mimeType};base64,` : "data:application/octet-stream;base64,";
       return `${prefix}${base64}`;
-    } catch (fsErr) {
-      console.error("[readUriToBase64] FileSystem fallback failed:", fsErr);
-      throw fsErr;
+    } catch (copyErr) {
+      console.error("[readUriToBase64] All read methods failed:", copyErr);
     }
+
+    throw new Error("Unable to read selected media file bytes");
   };
 
   const pickImageOrVideo = async (mediaType: "images" | "videos") => {
@@ -103,38 +175,61 @@ export default function AssetsScreen() {
         }
       }
 
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: mediaType === "images" ? ["images"] : ["videos"],
-        allowsEditing: false,
-        quality: 1,
-        base64: true,
-      });
+      let asset: any = null;
 
-      if (result.canceled || !result.assets || result.assets.length === 0) return;
-      const asset = result.assets[0];
-      const filename = asset.fileName || (mediaType === "images" ? `image_${Date.now()}.jpg` : `video_${Date.now()}.mp4`);
-      const fileSize = asset.fileSize || 0;
+      try {
+        const result = await ImagePicker.launchImageLibraryAsync({
+          mediaTypes: mediaType === "images" ? ["images"] : ["videos"],
+          allowsEditing: false,
+          quality: 1,
+        });
+
+        if (result.canceled || !result.assets || result.assets.length === 0) return;
+        asset = result.assets[0];
+      } catch (pickerErr) {
+        console.warn("[ImagePicker] Native launch notice, using DocumentPicker fallback:", pickerErr);
+        try {
+          const docResult = await DocumentPicker.getDocumentAsync({
+            type: mediaType === "images" ? ["image/*"] : ["video/*"],
+            copyToCacheDirectory: true,
+            multiple: false,
+          });
+          if (docResult.canceled || !docResult.assets || docResult.assets.length === 0) return;
+          asset = docResult.assets[0];
+        } catch (docErr) {
+          const fallbackDoc = await DocumentPicker.getDocumentAsync({
+            type: ["*/*"],
+            copyToCacheDirectory: true,
+            multiple: false,
+          });
+          if (fallbackDoc.canceled || !fallbackDoc.assets || fallbackDoc.assets.length === 0) return;
+          asset = fallbackDoc.assets[0];
+        }
+      }
+
+      if (!asset) return;
+
+      const filename = asset.name || asset.fileName || (mediaType === "images" ? `image_${Date.now()}.jpg` : `video_${Date.now()}.mp4`);
+      const fileSize = asset.size || asset.fileSize || 0;
 
       if (fileSize > MAX_BYTES) {
         Alert.alert("File Too Large", "Maximum allowed size is 50MB.");
         return;
       }
 
-      let dataBase64 = asset.base64 ? `data:${asset.mimeType || (mediaType === "images" ? "image/jpeg" : "video/mp4")};base64,${asset.base64}` : "";
-      if (!dataBase64) {
-        dataBase64 = await readUriToBase64(asset.uri, asset.mimeType);
-      }
+      const mime = asset.mimeType || (mediaType === "images" ? "image/jpeg" : "video/mp4");
 
+      // Instant UI response: Set file immediately without blocking on heavy base64 encoding
       setSelectedFile({
         name: filename,
         size: fileSize,
         type: mediaType === "images" ? "image" : "video",
-        mimeType: asset.mimeType || (mediaType === "images" ? "image/jpeg" : "video/mp4"),
-        dataBase64,
-        previewUri: mediaType === "images" ? asset.uri : undefined,
+        mimeType: mime,
+        uri: asset.uri,
+        previewUri: asset.uri,
       });
     } catch (err: any) {
-      console.error("ImagePicker error:", err);
+      console.error("Media selection error:", err);
       Alert.alert("Picker Error", err.message || "Failed to pick media.");
     }
   };
@@ -149,19 +244,33 @@ export default function AssetsScreen() {
           "application/vnd.openxmlformats-officedocument.presentationml.presentation",
           "application/vnd.ms-powerpoint",
           "application/pdf",
+          "*/*",
         ];
       } else if (category === "audio") {
-        typeFilter = ["audio/*", "audio/mpeg", "audio/wav", "audio/aac", "audio/m4a", "audio/ogg", "audio/flac"];
+        typeFilter = ["audio/*", "audio/mpeg", "audio/wav", "audio/aac", "audio/m4a", "audio/ogg", "audio/flac", "*/*"];
       }
 
-      const result = await DocumentPicker.getDocumentAsync({
-        type: typeFilter,
-        copyToCacheDirectory: true,
-        multiple: false,
-      });
+      let asset: any = null;
+      try {
+        const result = await DocumentPicker.getDocumentAsync({
+          type: typeFilter,
+          copyToCacheDirectory: true,
+          multiple: false,
+        });
+        if (result.canceled || !result.assets || result.assets.length === 0) return;
+        asset = result.assets[0];
+      } catch (pickerErr) {
+        console.warn("[DocumentPicker] First attempt failed, retrying with fallback flags:", pickerErr);
+        const fallbackResult = await DocumentPicker.getDocumentAsync({
+          type: ["*/*"],
+          copyToCacheDirectory: false,
+          multiple: false,
+        });
+        if (fallbackResult.canceled || !fallbackResult.assets || fallbackResult.assets.length === 0) return;
+        asset = fallbackResult.assets[0];
+      }
 
-      if (result.canceled || !result.assets || result.assets.length === 0) return;
-      const asset = result.assets[0];
+      if (!asset) return;
       const fileSize = asset.size || 0;
 
       if (fileSize > MAX_BYTES) {
@@ -170,7 +279,6 @@ export default function AssetsScreen() {
       }
 
       const filename = asset.name || `file_${Date.now()}`;
-      const dataBase64 = await readUriToBase64(asset.uri, asset.mimeType);
 
       // Detect type
       let detectedType: "image" | "video" | "audio" | "presentation" | "media" = "media";
@@ -185,13 +293,14 @@ export default function AssetsScreen() {
         detectedType = "video";
       }
 
+      // Instant UI response: Set file immediately without blocking on heavy base64 encoding
       setSelectedFile({
         name: filename,
         size: fileSize,
         type: detectedType,
         mimeType: asset.mimeType || "application/octet-stream",
-        dataBase64,
-        previewUri: detectedType === "image" ? asset.uri : undefined,
+        uri: asset.uri,
+        previewUri: asset.uri,
       });
     } catch (err: any) {
       console.error("DocumentPicker error:", err);
@@ -210,34 +319,49 @@ export default function AssetsScreen() {
     }
 
     setUploading(true);
-    setUploadProgress(15);
+    setUploadProgress(10);
     setTransferStatus(null);
 
     const progTimer = setInterval(() => {
       setUploadProgress((prev) => {
-        if (!prev) return 25;
-        if (prev < 85) return prev + 15;
+        if (prev === null) return 15;
+        if (prev < 85) return prev + 10;
         return prev;
       });
-    }, 250);
+    }, 200);
 
     try {
+      // Encode file bytes if not cached yet (non-blocking fallback)
+      let base64Data = selectedFile.dataBase64;
+      if (!base64Data && selectedFile.uri) {
+        setUploadProgress(25);
+        try {
+          base64Data = await readUriToBase64(selectedFile.uri, selectedFile.mimeType);
+        } catch (readErr) {
+          console.warn("[handleSend] Local base64 read skipped, using native stream upload:", readErr);
+        }
+      }
+
+      setUploadProgress(60);
+
       const res = await sendAsset({
         name: selectedFile.name,
         type: selectedFile.type,
         size: selectedFile.size,
         mimeType: selectedFile.mimeType,
-        dataBase64: selectedFile.dataBase64,
+        uri: selectedFile.uri,
+        dataBase64: base64Data,
       });
 
       clearInterval(progTimer);
       setUploadProgress(100);
 
       if (res.ok) {
-        setTransferStatus({
-          success: true,
-          message: res.message || "Asset accepted by desktop operator!",
+        setSuccessModalData({
+          title: "Successful",
+          subtitle: `${selectedFile.name} was successfully transferred and imported to the desktop controller.`,
         });
+        setSuccessModalVisible(true);
         setSelectedFile(null);
       } else {
         setTransferStatus({
@@ -253,7 +377,7 @@ export default function AssetsScreen() {
       });
     } finally {
       setUploading(false);
-      setTimeout(() => setUploadProgress(null), 1500);
+      setTimeout(() => setUploadProgress(null), 1000);
     }
   };
 
@@ -428,12 +552,19 @@ export default function AssetsScreen() {
         {/* Action Button */}
         {/* Upload Progress Bar */}
         {uploadProgress !== null && (
-          <View className="w-full bg-white/5 border border-blue-500/30 rounded-2xl p-4 mb-4">
-            <View className="flex-row justify-between items-center mb-2">
-              <Text className="text-blue-400 font-bold text-xs">
-                {uploadProgress < 100 ? "Uploading & Transferring to Controller…" : "Awaiting Operator Review…"}
-              </Text>
-              <Text className="text-white font-mono font-bold text-xs">{uploadProgress}%</Text>
+          <View className="w-full bg-[#1e1e24] border border-blue-500/40 rounded-2xl p-4 mb-4 shadow-lg">
+            <View className="flex-row justify-between items-center mb-2.5">
+              <View className="flex-row items-center gap-2">
+                <ActivityIndicator size="small" color="#60A5FA" />
+                <Text className="text-blue-400 font-bold text-xs">
+                  {uploadProgress < 35
+                    ? "Encoding & Preparing Video…"
+                    : uploadProgress < 90
+                      ? `Uploading to Workstation (${formatBytes(selectedFile?.size || 0)})…`
+                      : "Awaiting Operator Review…"}
+                </Text>
+              </View>
+              <Text className="text-white font-mono font-extrabold text-xs">{uploadProgress}%</Text>
             </View>
             <View className="w-full h-2.5 bg-white/10 rounded-full overflow-hidden">
               <View
@@ -497,6 +628,119 @@ export default function AssetsScreen() {
           </View>
         )}
       </ScrollView>
+
+      {/* Success Modal matching reference design with animated swipe-up */}
+      <Modal
+        visible={successModalVisible}
+        transparent
+        animationType="none"
+        statusBarTranslucent
+        onRequestClose={handleCloseSuccessModal}
+      >
+        <Animated.View
+          style={{
+            flex: 1,
+            backgroundColor: "rgba(0, 0, 0, 0.8)",
+            justifyContent: "flex-end",
+            alignItems: "center",
+            padding: 20,
+            paddingBottom: 36,
+            opacity: fadeAnim,
+          }}
+        >
+          <Animated.View
+            style={{
+              transform: [{ translateY: slideAnim }],
+              width: "100%",
+              maxWidth: 384,
+              backgroundColor: "#1e1e24",
+              borderRadius: 36,
+              borderWidth: 1,
+              borderColor: "rgba(255, 255, 255, 0.15)",
+              padding: 32,
+              alignItems: "center",
+              shadowColor: "#000000",
+              shadowOffset: { width: 0, height: 12 },
+              shadowOpacity: 0.5,
+              shadowRadius: 24,
+              elevation: 25,
+            }}
+          >
+            {/* Scalloped Starburst Rosette Badge */}
+            <View
+              style={{
+                width: 90,
+                height: 90,
+                alignItems: "center",
+                justifyContent: "center",
+                marginBottom: 20,
+                position: "relative",
+              }}
+            >
+              <View
+                style={{
+                  width: 68,
+                  height: 68,
+                  borderRadius: 18,
+                  backgroundColor: "#BEF264",
+                  position: "absolute",
+                  transform: [{ rotate: "0deg" }],
+                }}
+              />
+              <View
+                style={{
+                  width: 68,
+                  height: 68,
+                  borderRadius: 18,
+                  backgroundColor: "#BEF264",
+                  position: "absolute",
+                  transform: [{ rotate: "30deg" }],
+                }}
+              />
+              <View
+                style={{
+                  width: 68,
+                  height: 68,
+                  borderRadius: 18,
+                  backgroundColor: "#BEF264",
+                  position: "absolute",
+                  transform: [{ rotate: "60deg" }],
+                }}
+              />
+              <View
+                style={{
+                  width: 68,
+                  height: 68,
+                  borderRadius: 18,
+                  backgroundColor: "#BEF264",
+                  position: "absolute",
+                  transform: [{ rotate: "90deg" }],
+                }}
+              />
+              <Check size={36} color="#14532D" weight="bold" />
+            </View>
+
+            {/* Title */}
+            <Text className="text-white text-2xl font-black mb-2 text-center">
+              {successModalData.title}
+            </Text>
+
+            {/* Subtitle */}
+            <Text className="text-white/60 text-sm leading-relaxed text-center mb-8 px-2 font-medium">
+              {successModalData.subtitle}
+            </Text>
+
+            {/* Done Action Button */}
+            <TouchableOpacity
+              onPress={handleCloseSuccessModal}
+              activeOpacity={0.85}
+              className="w-full py-4 rounded-2xl bg-white/10 border border-white/15 items-center justify-center shadow-md active:bg-white/20"
+            >
+              <Text className="text-white font-bold text-base">Done</Text>
+            </TouchableOpacity>
+          </Animated.View>
+        </Animated.View>
+      </Modal>
     </SafeAreaView>
   );
 }

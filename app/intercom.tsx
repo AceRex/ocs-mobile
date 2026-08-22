@@ -495,16 +495,16 @@ export default function IntercomScreen() {
           <View
             style={[
               styles.statusDot,
-              { backgroundColor: isPaired ? "#4ade80" : isConnected ? "#fbbf24" : "rgba(255,255,255,0.3)" },
+              { backgroundColor: isPaired ? "#4ade80" : "rgba(255,255,255,0.3)" },
             ]}
           />
           <Text
             style={[
               styles.statusText,
-              { color: isPaired ? "#4ade80" : isConnected ? "#fbbf24" : "rgba(255,255,255,0.4)" },
+              { color: isPaired ? "#4ade80" : "rgba(255,255,255,0.4)" },
             ]}
           >
-            {isPaired ? "Paired" : isConnected ? "Connecting" : "Offline"}
+            {isPaired ? "Paired" : "Offline"}
           </Text>
         </View>
       </View>
