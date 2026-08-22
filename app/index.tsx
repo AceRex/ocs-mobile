@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import {
   View,
   Text,
@@ -6,6 +6,8 @@ import {
   TouchableOpacity,
   useWindowDimensions,
   StatusBar,
+  Modal,
+  TextInput,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { LinearGradient } from "expo-linear-gradient";
@@ -14,164 +16,399 @@ import {
   Book,
   Monitor,
   SquaresFour,
-  MusicNotes,
   Microphone,
-  Camera,
   Broadcast,
-  Gear,
-  House,
-  CaretRight,
   Link,
+  FileArrowUp,
+  PencilSimple,
+  CaretDown,
+  Lightning,
+  QrCode,
+  XCircle,
+  X,
 } from "phosphor-react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { useSocketStore } from "../store/socketStore";
 
 export default function Dashboard() {
   const router = useRouter();
   const { width } = useWindowDimensions();
+  const {
+    isConnected,
+    isPaired,
+    isAdmin,
+    deviceName,
+    setDeviceName,
+    serverIp,
+    lastHost,
+    lastCode,
+    reconnectLastSession,
+    disconnect,
+  } = useSocketStore();
 
-  // Fixed 2 columns unless very small screen
-  const numColumns = width < 380 ? 1 : 2;
+  const [renameModalVisible, setRenameModalVisible] = useState(false);
+  const [menuModalVisible, setMenuModalVisible] = useState(false);
+  const [tempName, setTempName] = useState(deviceName);
+
+  const handleOpenRename = () => {
+    setTempName(deviceName);
+    setMenuModalVisible(false);
+    setRenameModalVisible(true);
+  };
+
+  const handleSaveRename = () => {
+    if (tempName.trim()) {
+      setDeviceName(tempName.trim());
+    }
+    setRenameModalVisible(false);
+  };
+
+  const handleQuickReconnect = () => {
+    setMenuModalVisible(false);
+    reconnectLastSession();
+  };
 
   const cards = [
     {
       id: "connect",
       label: "Connect",
       icon: Link,
-      gradient: ["#FF416C", "#FF4B2B"], // Red/Pink Gradient
-      iconColor: "#ffffff",
+      gradient: ["#FF416C", "#FF4B2B"],
       description: "Host Setup",
+    },
+    {
+      id: "assets",
+      label: "Media Share",
+      icon: FileArrowUp,
+      gradient: ["#F2994A", "#F2C94C"],
+      description: "Send Assets",
     },
     {
       id: "timer",
       label: "Timer",
       icon: Clock,
-      gradient: ["#11998e", "#38ef7d"], // Green Gradient
-      iconColor: "#ffffff",
+      gradient: ["#11998e", "#38ef7d"],
       description: "Sync & Events",
+    },
+    {
+      id: "scenes",
+      label: "Scene",
+      icon: SquaresFour,
+      gradient: ["#FF512F", "#DD2476"],
+      description: "Create & Share",
     },
     {
       id: "bible",
       label: "Bible",
       icon: Book,
-      gradient: ["#2980B9", "#6DD5FA"], // Blue Gradient
-      iconColor: "#ffffff",
+      gradient: ["#2980B9", "#6DD5FA"],
       description: "Scripture",
     },
     {
       id: "presentation",
-      label: "Media",
+      label: "Teleprompter",
       icon: Monitor,
-      gradient: ["#8E2DE2", "#4A00E0"], // Purple Gradient
-      iconColor: "#ffffff",
+      gradient: ["#8E2DE2", "#4A00E0"],
       description: "Slides & Content",
+    },
+    {
+      id: "stage-control",
+      label: "Stage Master",
+      icon: Broadcast,
+      gradient: isAdmin ? ["#8A2387", "#E94057", "#F27121"] : ["#2a2838", "#1c1b26"],
+      description: isAdmin ? "Admin Live Control" : "Admin Locked",
+      adminOnly: true,
     },
     {
       id: "intercom",
       label: "Intercom",
       icon: Microphone,
-      gradient: ["#f12711", "#f5af19"], // Orange/Red Gradient
-      iconColor: "#ffffff",
-      description: "Team Chat",
-    },
-    {
-      id: "camera",
-      label: "Camera",
-      icon: Camera,
-      gradient: ["#000000", "#434343"], // Dark Gradient
-      iconColor: "#ffffff",
-      description: "Remote View",
-    },
-    {
-      id: "settings",
-      label: "Settings",
-      icon: Gear,
-      gradient: ["#4B79A1", "#283E51"], // Steel Blue Gradient
-      iconColor: "#ffffff",
-      description: "Config",
+      gradient: ["#f12711", "#f5af19"],
+      description: "Push-to-Talk",
     },
   ];
+
+  // Chunk cards into pairs of 2 for clean flex-1 row distribution
+  const cardPairs = [];
+  for (let i = 0; i < cards.length; i += 2) {
+    cardPairs.push(cards.slice(i, i + 2));
+  }
 
   return (
     <SafeAreaView className="flex-1 bg-[#121212]">
       <StatusBar barStyle="light-content" />
       <ScrollView contentContainerStyle={{ padding: 20 }}>
         {/* Header */}
-        <View className="flex-row items-center justify-between mb-8 mt-2">
+        <View className="flex-row items-center justify-between mb-6 mt-2">
           <View>
             <Text className="text-3xl font-black text-white tracking-tight">
               OCS<Text className="text-green-400">.</Text>
             </Text>
-            <Text className="text-white/40 text-xs uppercase tracking-[0.2em] font-medium">
-              Controller Mobile
-            </Text>
+            <TouchableOpacity
+              onPress={handleOpenRename}
+              className="flex-row items-center gap-1.5 mt-0.5"
+            >
+              <Text className="text-white/60 text-xs font-semibold">
+                {deviceName || "Mobile Companion"}
+              </Text>
+              {isAdmin && (
+                <View className="bg-purple-500/25 border border-purple-500/50 px-1.5 py-0.5 rounded-md">
+                  <Text className="text-purple-300 text-[9px] font-black uppercase tracking-wider">
+                    Admin
+                  </Text>
+                </View>
+              )}
+              <PencilSimple size={12} color="rgba(255,255,255,0.4)" />
+            </TouchableOpacity>
           </View>
+
+          {/* Connection Status Dropdown Trigger */}
           <TouchableOpacity
-            onPress={() => router.push("/settings" as any)}
-            className="w-10 h-10 rounded-full bg-white/5 border border-white/10 items-center justify-center active:bg-white/10"
+            onPress={() => setMenuModalVisible(true)}
+            activeOpacity={0.8}
+            className={`flex-row items-center gap-1.5 px-3 py-1.5 rounded-full border ${
+              isPaired
+                ? "bg-emerald-500/20 border-emerald-400/40"
+                : "bg-white/10 border-white/20"
+            }`}
           >
-            <Gear color="white" size={20} />
+            <View
+              className={`w-2 h-2 rounded-full ${
+                isPaired
+                  ? "bg-emerald-400"
+                  : "bg-white/40"
+              }`}
+            />
+            <Text
+              className={`text-[11px] font-extrabold tracking-wide ${
+                isPaired
+                  ? "text-emerald-300"
+                  : "text-white/70"
+              }`}
+            >
+              {isPaired ? "Paired" : "Offline"}
+            </Text>
+            <CaretDown
+              size={11}
+              color={isPaired ? "#6EE7B7" : "rgba(255,255,255,0.7)"}
+              weight="bold"
+            />
           </TouchableOpacity>
         </View>
 
-        {/* Grid */}
-        <View className="flex-row flex-wrap justify-between">
-          {cards.map((card) => {
-            const Icon = card.icon;
-            const cardWidth = (width - 40 - 15) / numColumns; // 40 padding, 15 gap
+        {/* Connection Menu Modal — Full Page */}
+        <Modal
+          visible={menuModalVisible}
+          animationType="slide"
+          presentationStyle="fullScreen"
+          statusBarTranslucent
+          transparent={false}
+          onRequestClose={() => setMenuModalVisible(false)}
+        >
+          <SafeAreaView style={{ flex: 1, backgroundColor: "#121212" }}>
+            <View style={{ flex: 1, padding: 20, justifyContent: "space-between" }}>
+              <View style={{ flex: 1 }}>
+                {/* Header */}
+                <View className="border-b border-white/10 pb-4 mb-6">
+                  <Text className="text-white font-black text-2xl">Workstation Connection</Text>
+                  <Text className="text-white/60 text-xs mt-1 font-medium">
+                    {isPaired ? "Connected to Host" : "Offline"}
+                  </Text>
+                </View>
 
-            return (
+                {/* Options List */}
+                <View style={{ gap: 14 }}>
+                  {/* When DISCONNECTED: Show 1-Tap Reconnect Option (if previously connected) */}
+                  {!isPaired && lastHost ? (
+                    <TouchableOpacity
+                      onPress={handleQuickReconnect}
+                      className="py-4 px-4 rounded-2xl bg-purple-600/20 border border-purple-500/50 flex-row items-center justify-between"
+                    >
+                      <View className="flex-row items-center gap-3">
+                        <Lightning size={22} color="#C084FC" weight="fill" />
+                        <View>
+                          <Text className="text-purple-300 font-bold text-sm">
+                            Reconnect to {lastHost}
+                          </Text>
+                          <Text className="text-white/40 text-[11px] mt-0.5">
+                            Saved Code: {lastCode || "******"}
+                          </Text>
+                        </View>
+                      </View>
+                      <Text className="text-purple-400 font-extrabold text-xs">RECONNECT</Text>
+                    </TouchableOpacity>
+                  ) : null}
+
+                  {/* When DISCONNECTED: Show Scan QR / Manual Connect */}
+                  {!isPaired && (
+                    <TouchableOpacity
+                      onPress={() => {
+                        setMenuModalVisible(false);
+                        router.push("/connect");
+                      }}
+                      className="py-4 px-4 rounded-2xl bg-white/5 border border-white/10 flex-row items-center gap-3"
+                    >
+                      <QrCode size={22} color="#38BDF8" weight="bold" />
+                      <View>
+                        <Text className="text-white font-bold text-sm">
+                          Scan QR / Manual Connect
+                        </Text>
+                        <Text className="text-white/40 text-[11px] mt-0.5">
+                          Pair with a new desktop workstation
+                        </Text>
+                      </View>
+                    </TouchableOpacity>
+                  )}
+
+                  {/* Change Device Name (Available both connected and disconnected) */}
+                  <TouchableOpacity
+                    onPress={handleOpenRename}
+                    className="py-4 px-4 rounded-2xl bg-white/5 border border-white/10 flex-row items-center gap-3"
+                  >
+                    <PencilSimple size={22} color="#A78BFA" weight="bold" />
+                    <View>
+                      <Text className="text-white font-bold text-sm">Change Device Name</Text>
+                      <Text className="text-white/40 text-[11px] mt-0.5">
+                        Current: {deviceName || "Mobile Companion"}
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+
+                  {/* When CONNECTED: Show Disconnect Option */}
+                  {isPaired && (
+                    <TouchableOpacity
+                      onPress={() => {
+                        disconnect();
+                        setMenuModalVisible(false);
+                      }}
+                      className="py-4 px-4 rounded-2xl bg-red-500/10 border border-red-500/30 flex-row items-center gap-3"
+                    >
+                      <XCircle size={22} color="#F87171" weight="bold" />
+                      <View>
+                        <Text className="text-red-400 font-bold text-sm">Disconnect</Text>
+                        <Text className="text-red-400/60 text-[11px] mt-0.5">
+                          End current remote controller session
+                        </Text>
+                      </View>
+                    </TouchableOpacity>
+                  )}
+                </View>
+              </View>
+
+              {/* Close Bottom Button */}
               <TouchableOpacity
-                key={card.id}
-                onPress={() => router.push(`/${card.id}` as any)}
-                style={{
-                  width: numColumns > 1 ? cardWidth : "100%",
-                  marginBottom: 15,
-                }}
-                activeOpacity={0.9}
+                onPress={() => setMenuModalVisible(false)}
+                className="w-full py-4 rounded-2xl bg-white/10 items-center justify-center mb-2"
               >
-                <LinearGradient
-                  colors={card.gradient as [string, string, ...string[]]}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 1 }}
-                  className="rounded-[24px] p-5 h-44 justify-between relative overflow-hidden shadow-lg"
-                  style={{
-                    shadowColor: card.gradient[0],
-                    shadowOffset: { width: 0, height: 8 },
-                    shadowOpacity: 0.3,
-                    shadowRadius: 10,
-                    elevation: 10,
-                  }}
-                >
-                  {/* Background Accents */}
-                  <View className="absolute -right-6 -top-6 rounded-full w-24 h-24 bg-white/20 blur-xl" />
-                  <View className="absolute -left-6 -bottom-6 rounded-full w-32 h-32 bg-black/10 blur-xl" />
-
-                  <View className="flex-row justify-between items-start z-10">
-                    <View className="w-10 h-10 rounded-2xl bg-white/20 items-center justify-center backdrop-blur-sm border border-white/10">
-                      <Icon color={card.iconColor} size={20} weight="fill" />
-                    </View>
-                    <View className="bg-black/20 rounded-full p-1 opacity-0">
-                      <CaretRight color="white" size={12} weight="bold" />
-                    </View>
-                  </View>
-
-                  <View className="z-10">
-                    <Text className="text-xl font-bold text-white leading-tight mb-1 drop-shadow-md">
-                      {card.label}
-                    </Text>
-                    <Text className="text-white/80 text-xs font-semibold tracking-wide bg-black/10 self-start px-2 py-1 rounded-lg overflow-hidden">
-                      {card.description}
-                    </Text>
-                  </View>
-                </LinearGradient>
+                <Text className="text-white font-bold text-base">Close</Text>
               </TouchableOpacity>
-            );
-          })}
-        </View>
+            </View>
+          </SafeAreaView>
+        </Modal>
 
-        {/* Footer info or stats could go here */}
-        <View className="mt-8 items-center">
-          <Text className="text-white/20 text-xs">v1.0.0 • Connected</Text>
+        {/* Rename Modal */}
+        <Modal
+          visible={renameModalVisible}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setRenameModalVisible(false)}
+        >
+          <View className="flex-1 bg-black/80 justify-center items-center p-6">
+            <View className="w-full bg-[#1e1e24] border border-white/15 rounded-2xl p-6 shadow-2xl">
+              <Text className="text-white font-bold text-lg mb-1">
+                Device Name
+              </Text>
+              <Text className="text-white/50 text-xs mb-4">
+                This name appears on the desktop Controller device list.
+              </Text>
+              <TextInput
+                value={tempName}
+                onChangeText={setTempName}
+                placeholder="e.g. Pastor's Phone"
+                placeholderTextColor="#666"
+                className="bg-black/50 border border-white/20 text-white rounded-xl p-3.5 text-base font-semibold mb-6"
+                autoFocus
+              />
+              <View className="flex-row gap-3">
+                <TouchableOpacity
+                  onPress={() => setRenameModalVisible(false)}
+                  className="flex-1 py-3 bg-white/10 rounded-xl items-center"
+                >
+                  <Text className="text-white/70 font-bold text-sm">
+                    Cancel
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={handleSaveRename}
+                  className="flex-1 py-3 bg-purple-600 rounded-xl items-center"
+                >
+                  <Text className="text-white font-bold text-sm">
+                    Save Name
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
+
+        {/* 2-Column Grid of Cards (gradient bg, no borders, gap: 8, rounded: 10, flex: 1, space-y-4) */}
+        <View style={{ gap: 8 }}>
+          {cardPairs.map((pair, rowIndex) => (
+            <View key={rowIndex} style={{ flexDirection: "row", gap: 8 }}>
+              {pair.map((card) => {
+                const Icon = card.icon;
+
+                return (
+                  <TouchableOpacity
+                    key={card.id}
+                    onPress={() => router.push(`/${card.id}` as any)}
+                    style={{ flex: 1 }}
+                    activeOpacity={0.85}
+                  >
+                    <LinearGradient
+                      colors={card.gradient as [string, string, ...string[]]}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 1 }}
+                      style={{
+                        borderRadius: 10,
+                        padding: 14,
+                        height: 145,
+                        justifyContent: "space-between",
+                        overflow: "hidden",
+                      }}
+                      className="space-y-4"
+                    >
+                      {/* Top Row: Icon */}
+                      <View className="flex-row justify-between items-start">
+                        <View
+                          style={{
+                            width: 38,
+                            height: 38,
+                            borderRadius: 8,
+                            backgroundColor: "rgba(255, 255, 255, 0.2)",
+                            alignItems: "center",
+                            justifyContent: "center",
+                          }}
+                        >
+                          <Icon color="#ffffff" size={20} weight="fill" />
+                        </View>
+                      </View>
+
+                      {/* Bottom Row: Label & Description with space-y-1 */}
+                      <View className="space-y-1">
+                        <Text className="text-lg font-black text-white leading-tight tracking-tight">
+                          {card.label}
+                        </Text>
+                        <Text className="text-white/80 text-[11px] font-semibold tracking-wide">
+                          {card.description}
+                        </Text>
+                      </View>
+                    </LinearGradient>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          ))}
         </View>
       </ScrollView>
     </SafeAreaView>
