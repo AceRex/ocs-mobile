@@ -147,7 +147,7 @@ export default function IntercomScreen() {
     const runContinuousMicStream = async () => {
       while (isStreaming && liveMicActiveRef.current) {
         try {
-          let base64Audio = "";
+          let base64Audio: string | null = "";
           let format = "m4a";
 
           if (Platform.OS === "web") {
@@ -349,7 +349,7 @@ export default function IntercomScreen() {
     const durationMs = Date.now() - recordStartTimeRef.current;
 
     try {
-      let base64Audio = "";
+      let base64Audio: string | null = "";
       let format = "m4a";
 
       if (Platform.OS === "web") {
@@ -392,12 +392,9 @@ export default function IntercomScreen() {
           }
           // Reset audio routing to loudspeaker after recording session
           try {
-            await Audio.setAudioModeAsync({
-              allowsRecordingIOS: false,
-              playsInSilentModeIOS: true,
-              staysActiveInBackground: true,
-              shouldDuckAndroid: true,
-              playThroughEarpieceAndroid: false,
+            await setAudioModeAsync({
+              allowsRecording: false,
+              playsInSilentMode: true,
             });
           } catch (_) {}
         }

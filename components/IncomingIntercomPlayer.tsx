@@ -31,7 +31,7 @@ export default function IncomingIntercomPlayer({ isBanner = false }: { isBanner?
     if (playerRef.current) {
       try {
         playerRef.current.pause();
-        playerRef.current.release();
+        (playerRef.current as any)?.release?.();
       } catch (_) {}
       playerRef.current = null;
     }
@@ -141,7 +141,7 @@ export default function IncomingIntercomPlayer({ isBanner = false }: { isBanner?
             const player = createAudioPlayer(fileUri);
             playerRef.current = player;
 
-            player.addListener("playbackStatusUpdate", (status: any) => {
+            (player as any)?.addListener?.("playbackStatusUpdate", (status: any) => {
               if (!isMounted) return;
               if (status.isLoaded) {
                 if (status.duration > 0) {
