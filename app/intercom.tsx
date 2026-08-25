@@ -583,14 +583,6 @@ export default function IntercomScreen() {
             color={activeMode === "peers" ? "white" : "#9ca3af"}
             weight="bold"
           />
-          <Text
-            style={[
-              styles.modeText,
-              activeMode === "peers" ? styles.modeTextActive : null,
-            ]}
-          >
-            1. Other Users
-          </Text>
         </TouchableOpacity>
 
         <TouchableOpacity
@@ -617,14 +609,6 @@ export default function IntercomScreen() {
             color={activeMode === "controller" ? "white" : "#9ca3af"}
             weight="bold"
           />
-          <Text
-            style={[
-              styles.modeText,
-              activeMode === "controller" ? styles.modeTextActive : null,
-            ]}
-          >
-            2. Controller {isAdmin ? "" : "🔒"}
-          </Text>
         </TouchableOpacity>
 
         <TouchableOpacity
@@ -651,14 +635,6 @@ export default function IntercomScreen() {
             color={activeMode === "mic" ? "white" : "#9ca3af"}
             weight="bold"
           />
-          <Text
-            style={[
-              styles.modeText,
-              activeMode === "mic" ? styles.modeTextActive : null,
-            ]}
-          >
-            3. Work as Mic {isAdmin ? "" : "🔒"}
-          </Text>
         </TouchableOpacity>
       </View>
 

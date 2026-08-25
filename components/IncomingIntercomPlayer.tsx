@@ -9,9 +9,51 @@ import {
   Platform,
 } from "react-native";
 import * as FileSystem from "expo-file-system/legacy";
+import * as Haptics from "expo-haptics";
 import { createAudioPlayer, setAudioModeAsync, AudioPlayer } from "expo-audio";
 import { Waveform, Play, Pause, X, SpeakerHigh, ArrowsClockwise } from "phosphor-react-native";
 import { useSocketStore } from "../store/socketStore";
+
+// Synthesize pleasant two-tone notification alert chime (C6 -> G6)
+function playAlertChime() {
+  try {
+    try {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (_) {}
+
+    if (Platform.OS === "web" && typeof window !== "undefined") {
+      const AudioCtx = (window as any).AudioContext || (window as any).webkitAudioContext;
+      if (AudioCtx) {
+        const ctx = new AudioCtx();
+        const osc1 = ctx.createOscillator();
+        const osc2 = ctx.createOscillator();
+        const gain = ctx.createGain();
+
+        osc1.type = "sine";
+        osc1.frequency.setValueAtTime(1046.5, ctx.currentTime); // C6
+        osc1.frequency.exponentialRampToValueAtTime(1567.98, ctx.currentTime + 0.12); // G6
+
+        osc2.type = "triangle";
+        osc2.frequency.setValueAtTime(1567.98, ctx.currentTime);
+        osc2.frequency.exponentialRampToValueAtTime(2093.0, ctx.currentTime + 0.18); // C7
+
+        gain.gain.setValueAtTime(0.4, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.45);
+
+        osc1.connect(gain);
+        osc2.connect(gain);
+        gain.connect(ctx.destination);
+
+        osc1.start();
+        osc2.start();
+        osc1.stop(ctx.currentTime + 0.45);
+        osc2.stop(ctx.currentTime + 0.45);
+      }
+    }
+  } catch (err) {
+    console.log("[NotificationAlert] Notice:", err);
+  }
+}
 
 export default function IncomingIntercomPlayer({ isBanner = false }: { isBanner?: boolean }) {
   const { incomingIntercom, clearIncomingIntercom } = useSocketStore();
@@ -19,7 +61,7 @@ export default function IncomingIntercomPlayer({ isBanner = false }: { isBanner?
   const [isLoading, setIsLoading] = useState(false);
   const [audioUri, setAudioUri] = useState<string | null>(null);
   const [progress, setProgress] = useState(0);
-  const [autoPlay, setAutoPlay] = useState(true);
+  const [autoPlay, setAutoPlay] = useState(false);
 
   const playerRef = useRef<AudioPlayer | null>(null);
   const webAudioRef = useRef<HTMLAudioElement | null>(null);
@@ -31,6 +73,11 @@ export default function IncomingIntercomPlayer({ isBanner = false }: { isBanner?
     if (playerRef.current) {
       try {
         playerRef.current.pause();
+      } catch (_) {}
+      try {
+        (playerRef.current as any)?.remove?.();
+      } catch (_) {}
+      try {
         (playerRef.current as any)?.release?.();
       } catch (_) {}
       playerRef.current = null;
@@ -38,6 +85,7 @@ export default function IncomingIntercomPlayer({ isBanner = false }: { isBanner?
     if (webAudioRef.current) {
       try {
         webAudioRef.current.pause();
+        webAudioRef.current.src = "";
       } catch (_) {}
       webAudioRef.current = null;
     }
@@ -64,6 +112,14 @@ export default function IncomingIntercomPlayer({ isBanner = false }: { isBanner?
       tension: 50,
       friction: 8,
     }).start();
+
+    // Alert recipient with pleasant notification chime and haptics
+    playAlertChime();
+
+    // If an inline instance is mounted while global root banner is active, only root banner loads audio
+    if (!isBanner) {
+      return;
+    }
 
     const loadAndPlayAudio = async () => {
       try {
@@ -121,7 +177,7 @@ export default function IncomingIntercomPlayer({ isBanner = false }: { isBanner?
           }
         } else {
           // Native Android & iOS (expo-audio)
-          const fileUri = `${FileSystem.cacheDirectory}intercom_${Date.now()}.${ext}`;
+          const fileUri = `${FileSystem.cacheDirectory}intercom_${Date.now()}_${Math.random().toString(36).slice(2, 6)}.${ext}`;
 
           await FileSystem.writeAsStringAsync(fileUri, cleanBase64, {
             encoding: FileSystem.EncodingType.Base64,

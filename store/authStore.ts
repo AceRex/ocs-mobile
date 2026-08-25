@@ -145,6 +145,17 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     const cleanBase = rawBase.replace(/\/api\/?$/, '').replace(/\/$/, '');
     const endpoint = `${cleanBase}/api/auth/login`;
 
+    let deviceId = `mob-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+    try {
+      if (Platform.OS === 'web' && typeof localStorage !== 'undefined') {
+        const savedId = localStorage.getItem('ocs_mobile_device_id');
+        if (savedId) deviceId = savedId;
+        else localStorage.setItem('ocs_mobile_device_id', deviceId);
+      }
+    } catch (_) {}
+
+    const deviceName = Platform.OS === 'ios' ? 'iPhone Companion' : Platform.OS === 'android' ? 'Android Companion' : 'Mobile Companion';
+
     try {
       const response = await fetch(endpoint, {
         method: 'POST',
@@ -152,11 +163,15 @@ export const useAuthStore = create<AuthState>((set, get) => ({
           'Content-Type': 'application/json',
           Accept: 'application/json',
           'x-ocs-platform': 'mobile',
+          'x-ocs-device-id': deviceId,
+          'x-ocs-device-name': deviceName,
         },
         body: JSON.stringify({
           email: email.trim().toLowerCase(),
           password,
           platform: 'mobile',
+          deviceId,
+          deviceName,
         }),
       });
 
