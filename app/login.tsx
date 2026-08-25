@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState } from "react";
 import {
   View,
   Text,
@@ -9,9 +9,9 @@ import {
   Platform,
   ActivityIndicator,
   StyleSheet,
-} from 'react-native';
-import { useRouter } from 'expo-router';
-import { LinearGradient } from 'expo-linear-gradient';
+} from "react-native";
+import { useRouter } from "expo-router";
+import { LinearGradient } from "expo-linear-gradient";
 import {
   EnvelopeSimple,
   LockSimple,
@@ -23,30 +23,31 @@ import {
   Gear,
   CheckCircle,
   ArrowSquareOut,
-} from 'phosphor-react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import * as Linking from 'expo-linking';
-import * as Haptics from 'expo-haptics';
-import { useAuthStore } from '../store/authStore';
+} from "phosphor-react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+import * as Linking from "expo-linking";
+import * as Haptics from "expo-haptics";
+import { useAuthStore } from "../store/authStore";
 
 export default function LoginScreen() {
   const router = useRouter();
-  const { login, isLoading, authError, setAuthError, guestExpired } = useAuthStore();
+  const { login, isLoading, authError, setAuthError, guestExpired } =
+    useAuthStore();
 
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
-  const [customServer, setCustomServer] = useState('');
+  const [customServer, setCustomServer] = useState("");
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   const handleLogin = async () => {
     if (!email.trim()) {
-      setAuthError('Please enter your account email address.');
+      setAuthError("Please enter your account email address.");
       return;
     }
     if (!password) {
-      setAuthError('Please enter your password.');
+      setAuthError("Please enter your password.");
       return;
     }
 
@@ -54,15 +55,19 @@ export default function LoginScreen() {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     } catch (_) {}
 
-    const result = await login(email, password, customServer.trim() || undefined);
+    const result = await login(
+      email,
+      password,
+      customServer.trim() || undefined,
+    );
 
     if (result.success) {
       try {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       } catch (_) {}
-      setSuccessMessage('Successfully signed in!');
+      setSuccessMessage("Successfully signed in!");
       setTimeout(() => {
-        router.replace('/');
+        router.replace("/");
       }, 500);
     } else {
       try {
@@ -72,17 +77,19 @@ export default function LoginScreen() {
   };
 
   const handleOpenSignup = () => {
-    Linking.openURL('https://ocs-web.netlify.app/signup').catch(() => {});
+    Linking.openURL("https://ocs-web-three.vercel.app/signup").catch(() => {});
   };
 
   const handleOpenForgotPassword = () => {
-    Linking.openURL('https://ocs-web.netlify.app/forgot-password').catch(() => {});
+    Linking.openURL("https://ocs-web-three.vercel.app/forgot-password").catch(
+      () => {},
+    );
   };
 
   return (
     <SafeAreaView style={styles.safeArea}>
       <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
         style={{ flex: 1 }}
       >
         <ScrollView
@@ -104,25 +111,16 @@ export default function LoginScreen() {
             )}
 
             <View style={styles.logoBadge}>
-              <Text style={styles.logoText}>
-                OCS<Text style={{ color: '#4ADE80' }}>.</Text>
-              </Text>
+              <Text style={styles.logoText}>Login to your account</Text>
             </View>
-
-            <TouchableOpacity
-              onPress={() => setShowAdvanced(!showAdvanced)}
-              style={styles.gearButton}
-              activeOpacity={0.7}
-            >
-              <Gear size={20} color={showAdvanced ? '#C084FC' : 'rgba(255,255,255,0.6)'} weight="bold" />
-            </TouchableOpacity>
           </View>
 
           {/* Titles */}
           <View style={styles.titleSection}>
             <Text style={styles.mainTitle}>Welcome Back</Text>
             <Text style={styles.subTitle}>
-              Sign in to your OCS account to unlock all mobile companion features, remote stage controls, and cloud sync.
+              Sign in to your OCS account to unlock all mobile companion
+              features, remote stage controls, and cloud sync.
             </Text>
           </View>
 
@@ -142,29 +140,17 @@ export default function LoginScreen() {
             </View>
           )}
 
-          {/* Advanced Server Configuration */}
-          {showAdvanced && (
-            <View style={styles.advancedBox}>
-              <Text style={styles.advancedLabel}>Custom API Backend (Optional):</Text>
-              <TextInput
-                value={customServer}
-                onChangeText={setCustomServer}
-                placeholder="https://ocs-backend.netlify.app"
-                placeholderTextColor="rgba(255,255,255,0.3)"
-                autoCapitalize="none"
-                autoCorrect={false}
-                style={styles.advancedInput}
-              />
-            </View>
-          )}
-
           {/* Form Fields */}
           <View style={styles.form}>
             {/* Email Field */}
             <View style={styles.inputGroup}>
               <Text style={styles.inputLabel}>EMAIL ADDRESS</Text>
               <View style={styles.inputWrapper}>
-                <EnvelopeSimple size={20} color="rgba(255,255,255,0.4)" weight="bold" />
+                <EnvelopeSimple
+                  size={20}
+                  color="rgba(255,255,255,0.4)"
+                  weight="bold"
+                />
                 <TextInput
                   value={email}
                   onChangeText={(val) => {
@@ -185,12 +171,19 @@ export default function LoginScreen() {
             <View style={styles.inputGroup}>
               <View style={styles.passwordHeader}>
                 <Text style={styles.inputLabel}>PASSWORD</Text>
-                <TouchableOpacity onPress={handleOpenForgotPassword} activeOpacity={0.7}>
+                <TouchableOpacity
+                  onPress={handleOpenForgotPassword}
+                  activeOpacity={0.7}
+                >
                   <Text style={styles.forgotText}>Forgot password?</Text>
                 </TouchableOpacity>
               </View>
               <View style={styles.inputWrapper}>
-                <LockSimple size={20} color="rgba(255,255,255,0.4)" weight="bold" />
+                <LockSimple
+                  size={20}
+                  color="rgba(255,255,255,0.4)"
+                  weight="bold"
+                />
                 <TextInput
                   value={password}
                   onChangeText={(val) => {
@@ -226,7 +219,7 @@ export default function LoginScreen() {
               style={styles.submitButtonWrapper}
             >
               <LinearGradient
-                colors={['#7c3aed', '#9333ea', '#db2777']}
+                colors={["#7c3aed", "#9333ea", "#db2777"]}
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 0 }}
                 style={styles.submitButton}
@@ -264,116 +257,116 @@ export default function LoginScreen() {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: '#121212',
+    backgroundColor: "#121212",
   },
   scrollContent: {
     padding: 24,
-    minHeight: '100%',
-    justifyContent: 'space-between',
+    minHeight: "100%",
+    justifyContent: "space-between",
   },
   topBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
     marginBottom: 28,
   },
   backButton: {
     width: 40,
     height: 40,
     borderRadius: 12,
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
-    alignItems: 'center',
-    justifyContent: 'center',
+    backgroundColor: "rgba(255, 255, 255, 0.08)",
+    alignItems: "center",
+    justifyContent: "center",
   },
   logoBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
   },
   logoText: {
-    color: '#ffffff',
+    color: "#ffffff",
     fontSize: 22,
-    fontWeight: '900',
+    fontWeight: "900",
     letterSpacing: 0.5,
   },
   gearButton: {
     width: 40,
     height: 40,
     borderRadius: 12,
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
-    alignItems: 'center',
-    justifyContent: 'center',
+    backgroundColor: "rgba(255, 255, 255, 0.08)",
+    alignItems: "center",
+    justifyContent: "center",
   },
   titleSection: {
     marginBottom: 24,
   },
   mainTitle: {
-    color: '#ffffff',
+    color: "#ffffff",
     fontSize: 28,
-    fontWeight: '900',
+    fontWeight: "900",
     letterSpacing: 0.2,
     marginBottom: 8,
   },
   subTitle: {
-    color: 'rgba(255, 255, 255, 0.6)',
+    color: "rgba(255, 255, 255, 0.6)",
     fontSize: 13,
     lineHeight: 20,
   },
   successBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 8,
-    backgroundColor: 'rgba(52, 211, 153, 0.15)',
-    borderColor: 'rgba(52, 211, 153, 0.3)',
+    backgroundColor: "rgba(52, 211, 153, 0.15)",
+    borderColor: "rgba(52, 211, 153, 0.3)",
     borderWidth: 1,
     padding: 12,
     borderRadius: 14,
     marginBottom: 16,
   },
   successText: {
-    color: '#6EE7B7',
+    color: "#6EE7B7",
     fontSize: 12,
-    fontWeight: '700',
+    fontWeight: "700",
     flex: 1,
   },
   errorBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 8,
-    backgroundColor: 'rgba(239, 68, 68, 0.15)',
-    borderColor: 'rgba(239, 68, 68, 0.3)',
+    backgroundColor: "rgba(239, 68, 68, 0.15)",
+    borderColor: "rgba(239, 68, 68, 0.3)",
     borderWidth: 1,
     padding: 12,
     borderRadius: 14,
     marginBottom: 16,
   },
   errorText: {
-    color: '#FCA5A5',
+    color: "#FCA5A5",
     fontSize: 12,
-    fontWeight: '700',
+    fontWeight: "700",
     flex: 1,
   },
   advancedBox: {
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-    borderColor: 'rgba(255, 255, 255, 0.1)',
+    backgroundColor: "rgba(255, 255, 255, 0.05)",
+    borderColor: "rgba(255, 255, 255, 0.1)",
     borderWidth: 1,
     borderRadius: 14,
     padding: 12,
     marginBottom: 16,
   },
   advancedLabel: {
-    color: 'rgba(255, 255, 255, 0.6)',
+    color: "rgba(255, 255, 255, 0.6)",
     fontSize: 11,
-    fontWeight: '700',
+    fontWeight: "700",
     marginBottom: 6,
   },
   advancedInput: {
-    backgroundColor: 'rgba(0, 0, 0, 0.4)',
-    color: '#ffffff',
+    backgroundColor: "rgba(0, 0, 0, 0.4)",
+    color: "#ffffff",
     fontSize: 12,
     padding: 10,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.15)',
+    borderColor: "rgba(255, 255, 255, 0.15)",
   },
   form: {
     gap: 20,
@@ -383,27 +376,27 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   passwordHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
   },
   inputLabel: {
-    color: 'rgba(255, 255, 255, 0.5)',
+    color: "rgba(255, 255, 255, 0.5)",
     fontSize: 11,
-    fontWeight: '900',
+    fontWeight: "900",
     letterSpacing: 0.8,
   },
   forgotText: {
-    color: '#C084FC',
+    color: "#C084FC",
     fontSize: 11,
-    fontWeight: '700',
+    fontWeight: "700",
   },
   inputWrapper: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#1E1E24',
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#1E1E24",
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.12)',
+    borderColor: "rgba(255, 255, 255, 0.12)",
     borderRadius: 16,
     paddingHorizontal: 14,
     height: 52,
@@ -411,9 +404,9 @@ const styles = StyleSheet.create({
   },
   textInput: {
     flex: 1,
-    color: '#ffffff',
+    color: "#ffffff",
     fontSize: 14,
-    fontWeight: '600',
+    fontWeight: "600",
   },
   eyeButton: {
     padding: 6,
@@ -421,46 +414,46 @@ const styles = StyleSheet.create({
   submitButtonWrapper: {
     marginTop: 8,
     borderRadius: 16,
-    overflow: 'hidden',
-    shadowColor: '#7c3aed',
+    overflow: "hidden",
+    shadowColor: "#7c3aed",
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.4,
     shadowRadius: 16,
     elevation: 8,
   },
   submitButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
     gap: 8,
     paddingVertical: 16,
   },
   submitButtonText: {
-    color: '#ffffff',
+    color: "#ffffff",
     fontSize: 14,
-    fontWeight: '900',
-    textTransform: 'uppercase',
+    fontWeight: "900",
+    textTransform: "uppercase",
     letterSpacing: 0.8,
   },
   footer: {
-    alignItems: 'center',
+    alignItems: "center",
     marginTop: 32,
     gap: 8,
   },
   footerText: {
-    color: 'rgba(255, 255, 255, 0.5)',
+    color: "rgba(255, 255, 255, 0.5)",
     fontSize: 12,
   },
   signupButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 4,
     paddingVertical: 6,
     paddingHorizontal: 12,
   },
   signupText: {
-    color: '#C084FC',
+    color: "#C084FC",
     fontSize: 13,
-    fontWeight: '800',
+    fontWeight: "800",
   },
 });

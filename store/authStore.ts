@@ -2,8 +2,7 @@ import { create } from 'zustand';
 import * as FileSystem from 'expo-file-system/legacy';
 import { Platform } from 'react-native';
 
-const AUTH_STORAGE_FILE = FileSystem.documentDirectory ? `${FileSystem.documentDirectory}ocs_auth_session.json` : null;
-const DEFAULT_API_BASE = 'https://ocs-backend.netlify.app';
+const DEFAULT_API_BASE = 'https://ocs-backend-ten.vercel.app';
 const GUEST_DURATION_MS = 60 * 60 * 1000; // 1 hour in milliseconds
 
 export interface AuthUser {
@@ -142,19 +141,34 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   login: async (email: string, password: string, customApiUrl?: string) => {
     set({ isLoading: true, authError: null });
-    const baseUrl = (customApiUrl && customApiUrl.trim()) ? customApiUrl.trim().replace(/\/$/, '') : DEFAULT_API_BASE;
+    const rawBase = (customApiUrl && customApiUrl.trim()) ? customApiUrl.trim() : DEFAULT_API_BASE;
+    const cleanBase = rawBase.replace(/\/api\/?$/, '').replace(/\/$/, '');
+    const endpoint = `${cleanBase}/api/auth/login`;
 
     try {
-      const response = await fetch(`${baseUrl}/api/auth/login`, {
+      const response = await fetch(endpoint, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Accept: 'application/json',
+          'x-ocs-platform': 'mobile',
         },
-        body: JSON.stringify({ email: email.trim(), password }),
+        body: JSON.stringify({
+          email: email.trim().toLowerCase(),
+          password,
+          platform: 'mobile',
+        }),
       });
 
-      const data = await response.json();
+      const contentType = response.headers.get('content-type') || '';
+      let data: any = {};
+      if (contentType.includes('application/json')) {
+        data = await response.json();
+      } else {
+        const rawText = await response.text();
+        const snippet = rawText.replace(/<[^>]*>/g, '').trim().slice(0, 120);
+        throw new Error(snippet || `Server returned status ${response.status}`);
+      }
 
       if (!response.ok || !data.success) {
         const message = data.message || data.error || 'Invalid credentials or login failed';

@@ -53,10 +53,12 @@ export default function IntercomScreen() {
     streamMicChunk,
   } = useSocketStore();
 
-  const [activeMode, setActiveMode] = useState<IntercomMode>("controller");
+  const [activeMode, setActiveMode] = useState<IntercomMode>("peers");
   const [selectedTargetPeer, setSelectedTargetPeer] = useState<string>("all"); // 'all' or socketId
 
-  const [recordingState, setRecordingState] = useState<"idle" | "recording" | "sending" | "confirmed" | "error">("idle");
+  const [recordingState, setRecordingState] = useState<
+    "idle" | "recording" | "sending" | "confirmed" | "error"
+  >("idle");
   const [transcriptResult, setTranscriptResult] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [hasPermission, setHasPermission] = useState<boolean | null>(null);
@@ -151,8 +153,13 @@ export default function IntercomScreen() {
           let format = "m4a";
 
           if (Platform.OS === "web") {
-            if (typeof navigator !== "undefined" && navigator.mediaDevices?.getUserMedia) {
-              const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            if (
+              typeof navigator !== "undefined" &&
+              navigator.mediaDevices?.getUserMedia
+            ) {
+              const stream = await navigator.mediaDevices.getUserMedia({
+                audio: true,
+              });
               const webChunks: Blob[] = [];
               const mediaRecorder = new (window as any).MediaRecorder(stream);
               mediaRecorder.ondataavailable = (e: any) => {
@@ -169,11 +176,15 @@ export default function IntercomScreen() {
               await new Promise<void>((resolve) => {
                 mediaRecorder.onstop = async () => {
                   stream.getTracks().forEach((t: any) => t.stop());
-                  const audioBlob = new Blob(webChunks, { type: mediaRecorder.mimeType || "audio/webm" });
+                  const audioBlob = new Blob(webChunks, {
+                    type: mediaRecorder.mimeType || "audio/webm",
+                  });
                   const reader = new FileReader();
                   reader.onloadend = () => {
                     const dataUrl = reader.result as string;
-                    base64Audio = dataUrl.includes("base64,") ? dataUrl.split("base64,")[1] : dataUrl;
+                    base64Audio = dataUrl.includes("base64,")
+                      ? dataUrl.split("base64,")[1]
+                      : dataUrl;
                     format = mediaRecorder.mimeType || "webm";
                     resolve();
                   };
@@ -197,14 +208,18 @@ export default function IntercomScreen() {
               });
             } catch (_) {}
 
-            const recorder = new AudioModule.AudioRecorder(RecordingPresets.HIGH_QUALITY);
+            const recorder = new AudioModule.AudioRecorder(
+              RecordingPresets.HIGH_QUALITY,
+            );
             await recorder.prepareToRecordAsync();
             recorder.record();
 
             // Record continuous slice
             await new Promise((r) => setTimeout(r, 2600));
             if (!liveMicActiveRef.current) {
-              try { await recorder.stop(); } catch (_) {}
+              try {
+                await recorder.stop();
+              } catch (_) {}
               break;
             }
 
@@ -226,11 +241,13 @@ export default function IntercomScreen() {
               format,
               durationMs: 2600,
               role: "mic",
-            }).then((res) => {
-              if (res?.text) {
-                setTranscriptResult(res.text);
-              }
-            }).catch(() => {});
+            })
+              .then((res) => {
+                if (res?.text) {
+                  setTranscriptResult(res.text);
+                }
+              })
+              .catch(() => {});
           }
         } catch (err: any) {
           console.warn("Continuous mic stream error:", err?.message);
@@ -262,7 +279,7 @@ export default function IntercomScreen() {
             duration: 500,
             useNativeDriver: true,
           }),
-        ])
+        ]),
       );
       loop.start();
       return () => loop.stop();
@@ -280,7 +297,9 @@ export default function IntercomScreen() {
 
     if (activeMode !== "peers" && !isAdmin) {
       setRecordingState("error");
-      setErrorMessage("Admin privilege required for Controller and Wireless Mic modes.");
+      setErrorMessage(
+        "Admin privilege required for Controller and Wireless Mic modes.",
+      );
       Alert.alert(
         "Admin Access Required",
         "Controller Voice Prompts and Wireless Mic modes are strictly reserved for Admin devices. Please ask the Desktop Controller operator to grant Admin status in the Remote panel.",
@@ -293,8 +312,13 @@ export default function IntercomScreen() {
     recordStartTimeRef.current = Date.now();
     try {
       if (Platform.OS === "web") {
-        if (typeof navigator !== "undefined" && navigator.mediaDevices?.getUserMedia) {
-          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        if (
+          typeof navigator !== "undefined" &&
+          navigator.mediaDevices?.getUserMedia
+        ) {
+          const stream = await navigator.mediaDevices.getUserMedia({
+            audio: true,
+          });
           webChunksRef.current = [];
           const mediaRecorder = new (window as any).MediaRecorder(stream);
           webRecorderRef.current = mediaRecorder;
@@ -312,7 +336,9 @@ export default function IntercomScreen() {
         if (!perm.granted) {
           setHasPermission(false);
           setRecordingState("error");
-          setErrorMessage("Microphone permission denied. Please allow microphone access.");
+          setErrorMessage(
+            "Microphone permission denied. Please allow microphone access.",
+          );
           return;
         }
         setHasPermission(true);
@@ -325,7 +351,9 @@ export default function IntercomScreen() {
         } catch (_) {}
 
         // Fresh instance per recording session ensures clean state machine on Android
-        const recorder = new AudioModule.AudioRecorder(RecordingPresets.HIGH_QUALITY);
+        const recorder = new AudioModule.AudioRecorder(
+          RecordingPresets.HIGH_QUALITY,
+        );
         nativeRecorderRef.current = recorder;
         await recorder.prepareToRecordAsync();
         recorder.record();
@@ -359,13 +387,18 @@ export default function IntercomScreen() {
 
           await new Promise<void>((resolve) => {
             recorder.onstop = async () => {
-              const audioBlob = new Blob(webChunksRef.current, { type: recorder.mimeType || "audio/webm" });
-              if (recorder.stream) recorder.stream.getTracks().forEach((t: any) => t.stop());
+              const audioBlob = new Blob(webChunksRef.current, {
+                type: recorder.mimeType || "audio/webm",
+              });
+              if (recorder.stream)
+                recorder.stream.getTracks().forEach((t: any) => t.stop());
 
               const reader = new FileReader();
               reader.onloadend = () => {
                 const dataUrl = reader.result as string;
-                base64Audio = dataUrl.includes("base64,") ? dataUrl.split("base64,")[1] : dataUrl;
+                base64Audio = dataUrl.includes("base64,")
+                  ? dataUrl.split("base64,")[1]
+                  : dataUrl;
                 format = recorder.mimeType || "webm";
                 resolve();
               };
@@ -416,13 +449,22 @@ export default function IntercomScreen() {
         });
         if (res.ok) {
           setRecordingState("confirmed");
-          setTranscriptResult(`Audio sent to ${selectedTargetPeer === "all" ? "All Users" : "Selected User"}`);
+          setTranscriptResult(
+            `Audio sent to ${selectedTargetPeer === "all" ? "All Users" : "Selected User"}`,
+          );
         } else {
           setRecordingState("error");
           setErrorMessage(res.error || "Failed to deliver audio to peers");
         }
       } else if (activeMode === "controller") {
-        // Mode 2: Speak to Desktop Controller
+        // Mode 2: Speak to Desktop Controller (Audio Playback + Voice Command)
+        speakToPeer({
+          target: "controller",
+          audioBase64: base64Audio,
+          format,
+          durationMs,
+        }).catch(() => {});
+
         const res = await sendVoiceAudio({
           dataBase64: base64Audio,
           format,
@@ -432,10 +474,12 @@ export default function IntercomScreen() {
 
         if (res.ok) {
           setRecordingState("confirmed");
-          setTranscriptResult(res.text || "Command executed on Desktop Controller");
+          setTranscriptResult(
+            res.text || "Voice audio delivered to Desktop Controller",
+          );
         } else {
           setRecordingState("error");
-          setErrorMessage(res.error || "Desktop voice command failed");
+          setErrorMessage(res.error || "Desktop voice communication failed");
         }
       } else if (activeMode === "mic") {
         // Mode 3: Wireless Microphone -> Transcribes to Desktop Transcription Panel
@@ -448,7 +492,9 @@ export default function IntercomScreen() {
 
         if (res.ok) {
           setRecordingState("confirmed");
-          setTranscriptResult(res.text || "Voice sent to Desktop Transcription Panel");
+          setTranscriptResult(
+            res.text || "Voice sent to Desktop Transcription Panel",
+          );
         } else {
           setRecordingState("error");
           setErrorMessage(res.error || "Wireless mic transmission failed");
@@ -473,7 +519,10 @@ export default function IntercomScreen() {
     <SafeAreaView style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+        <TouchableOpacity
+          onPress={() => router.back()}
+          style={styles.backButton}
+        >
           <ArrowLeft size={24} color="white" />
         </TouchableOpacity>
         <View style={styles.headerCenter}>
@@ -484,15 +533,25 @@ export default function IntercomScreen() {
           style={[
             styles.statusBadge,
             {
-              backgroundColor: isPaired ? "rgba(34, 197, 94, 0.15)" : isConnected ? "rgba(245, 158, 11, 0.15)" : "rgba(255, 255, 255, 0.05)",
-              borderColor: isPaired ? "rgba(34, 197, 94, 0.3)" : isConnected ? "rgba(245, 158, 11, 0.3)" : "rgba(255, 255, 255, 0.1)",
+              backgroundColor: isPaired
+                ? "rgba(34, 197, 94, 0.15)"
+                : isConnected
+                  ? "rgba(245, 158, 11, 0.15)"
+                  : "rgba(255, 255, 255, 0.05)",
+              borderColor: isPaired
+                ? "rgba(34, 197, 94, 0.3)"
+                : isConnected
+                  ? "rgba(245, 158, 11, 0.3)"
+                  : "rgba(255, 255, 255, 0.1)",
             },
           ]}
         >
           <View
             style={[
               styles.statusDot,
-              { backgroundColor: isPaired ? "#4ade80" : "rgba(255,255,255,0.3)" },
+              {
+                backgroundColor: isPaired ? "#4ade80" : "rgba(255,255,255,0.3)",
+              },
             ]}
           />
           <Text
@@ -519,8 +578,17 @@ export default function IntercomScreen() {
             activeMode === "peers" && styles.modeButtonActivePurple,
           ]}
         >
-          <Users size={16} color={activeMode === "peers" ? "white" : "#9ca3af"} weight="bold" />
-          <Text style={[styles.modeText, activeMode === "peers" ? styles.modeTextActive : null]}>
+          <Users
+            size={16}
+            color={activeMode === "peers" ? "white" : "#9ca3af"}
+            weight="bold"
+          />
+          <Text
+            style={[
+              styles.modeText,
+              activeMode === "peers" ? styles.modeTextActive : null,
+            ]}
+          >
             1. Other Users
           </Text>
         </TouchableOpacity>
@@ -544,8 +612,17 @@ export default function IntercomScreen() {
             !isAdmin && { opacity: 0.55 },
           ]}
         >
-          <Sparkle size={16} color={activeMode === "controller" ? "white" : "#9ca3af"} weight="bold" />
-          <Text style={[styles.modeText, activeMode === "controller" ? styles.modeTextActive : null]}>
+          <Sparkle
+            size={16}
+            color={activeMode === "controller" ? "white" : "#9ca3af"}
+            weight="bold"
+          />
+          <Text
+            style={[
+              styles.modeText,
+              activeMode === "controller" ? styles.modeTextActive : null,
+            ]}
+          >
             2. Controller {isAdmin ? "" : "🔒"}
           </Text>
         </TouchableOpacity>
@@ -569,14 +646,26 @@ export default function IntercomScreen() {
             !isAdmin && { opacity: 0.55 },
           ]}
         >
-          <Broadcast size={16} color={activeMode === "mic" ? "white" : "#9ca3af"} weight="bold" />
-          <Text style={[styles.modeText, activeMode === "mic" ? styles.modeTextActive : null]}>
+          <Broadcast
+            size={16}
+            color={activeMode === "mic" ? "white" : "#9ca3af"}
+            weight="bold"
+          />
+          <Text
+            style={[
+              styles.modeText,
+              activeMode === "mic" ? styles.modeTextActive : null,
+            ]}
+          >
             3. Work as Mic {isAdmin ? "" : "🔒"}
           </Text>
         </TouchableOpacity>
       </View>
 
-      <ScrollView contentContainerStyle={styles.scrollContent} style={styles.scrollView}>
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        style={styles.scrollView}
+      >
         {/* Incoming Intercom Message Player */}
         <IncomingIntercomPlayer isBanner={false} />
 
@@ -586,16 +675,23 @@ export default function IntercomScreen() {
             <View style={styles.card}>
               <Text style={styles.cardTitle}>👥 Select Destination</Text>
               <Text style={styles.cardSubtitle}>
-                Choose to broadcast your voice to all connected team members, or tap a specific device.
+                Choose to broadcast your voice to all connected team members, or
+                tap a specific device.
               </Text>
 
               {/* Target Pills */}
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.pillContainer}>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.pillContainer}
+              >
                 <TouchableOpacity
                   onPress={() => setSelectedTargetPeer("all")}
                   style={[
                     styles.peerPill,
-                    selectedTargetPeer === "all" ? styles.peerPillActive : styles.peerPillInactive,
+                    selectedTargetPeer === "all"
+                      ? styles.peerPillActive
+                      : styles.peerPillInactive,
                   ]}
                 >
                   <Users size={16} color="white" weight="bold" />
@@ -608,7 +704,9 @@ export default function IntercomScreen() {
                     onPress={() => setSelectedTargetPeer(peer.id)}
                     style={[
                       styles.peerPill,
-                      selectedTargetPeer === peer.id ? styles.peerPillActive : styles.peerPillInactive,
+                      selectedTargetPeer === peer.id
+                        ? styles.peerPillActive
+                        : styles.peerPillInactive,
                     ]}
                   >
                     <DeviceMobile size={15} color="white" weight="bold" />
@@ -618,7 +716,9 @@ export default function IntercomScreen() {
 
                 {peers.length === 0 && (
                   <View style={{ paddingVertical: 8, paddingHorizontal: 12 }}>
-                    <Text style={styles.emptyPeersText}>No other companions online</Text>
+                    <Text style={styles.emptyPeersText}>
+                      No other companions online
+                    </Text>
                   </View>
                 )}
               </ScrollView>
@@ -634,7 +734,8 @@ export default function IntercomScreen() {
               <Text style={styles.cardTitle}>Controller Voice Prompts</Text>
             </View>
             <Text style={styles.cardSubtitle}>
-              Hold the button and speak. Desktop popup will notify the operator and execute:
+              Hold the button and speak. Desktop popup will notify the operator
+              and execute:
             </Text>
             <View style={styles.tagsWrap}>
               <View style={styles.blueTag}>
@@ -660,16 +761,33 @@ export default function IntercomScreen() {
               <Broadcast size={18} color="#34D399" weight="duotone" />
               <Text style={styles.cardTitle}>Live Wireless Microphone</Text>
             </View>
-            <Text style={[styles.cardSubtitle, { alignSelf: "flex-start", marginBottom: 16 }]}>
-              Turn your mobile phone into an active stage or pulpit wireless mic for the desktop system.
+            <Text
+              style={[
+                styles.cardSubtitle,
+                { alignSelf: "flex-start", marginBottom: 16 },
+              ]}
+            >
+              Turn your mobile phone into an active stage or pulpit wireless mic
+              for the desktop system.
             </Text>
 
             {/* Live VU Meter */}
             <View style={styles.vuMeterBox}>
               <View style={styles.vuHeader}>
                 <Text style={styles.vuTitle}>Audio Input Level</Text>
-                <Text style={[styles.vuValue, { color: isLiveMicActive ? "#4ade80" : "rgba(255,255,255,0.3)" }]}>
-                  {isLiveMicActive ? `${Math.round(liveMicLevel * 100)}%` : "MUTED"}
+                <Text
+                  style={[
+                    styles.vuValue,
+                    {
+                      color: isLiveMicActive
+                        ? "#4ade80"
+                        : "rgba(255,255,255,0.3)",
+                    },
+                  ]}
+                >
+                  {isLiveMicActive
+                    ? `${Math.round(liveMicLevel * 100)}%`
+                    : "MUTED"}
                 </Text>
               </View>
               <View style={styles.vuTrack}>
@@ -678,7 +796,12 @@ export default function IntercomScreen() {
                     styles.vuFill,
                     {
                       width: `${Math.min(100, liveMicLevel * 100)}%`,
-                      backgroundColor: liveMicLevel > 0.8 ? "#ef4444" : liveMicLevel > 0.5 ? "#f59e0b" : "#10b981",
+                      backgroundColor:
+                        liveMicLevel > 0.8
+                          ? "#ef4444"
+                          : liveMicLevel > 0.5
+                            ? "#f59e0b"
+                            : "#10b981",
                     },
                   ]}
                 />
@@ -727,16 +850,16 @@ export default function IntercomScreen() {
                         ? "rgba(147, 51, 234, 0.25)"
                         : "rgba(220, 38, 38, 0.25)"
                       : recordingState === "sending"
-                      ? "rgba(37, 99, 235, 0.2)"
-                      : "rgba(255, 255, 255, 0.05)",
+                        ? "rgba(37, 99, 235, 0.2)"
+                        : "rgba(255, 255, 255, 0.05)",
                   borderColor:
                     recordingState === "recording"
                       ? activeMode === "peers"
                         ? "#a855f7"
                         : "#ef4444"
                       : recordingState === "sending"
-                      ? "#60a5fa"
-                      : "rgba(255, 255, 255, 0.15)",
+                        ? "#60a5fa"
+                        : "rgba(255, 255, 255, 0.15)",
                 },
               ]}
             >
@@ -754,17 +877,21 @@ export default function IntercomScreen() {
                           ? "#9333ea"
                           : "#dc2626"
                         : recordingState === "sending"
-                        ? "#2563eb"
-                        : activeMode === "peers"
-                        ? "#7e22ce"
-                        : "#2563eb",
+                          ? "#2563eb"
+                          : activeMode === "peers"
+                            ? "#7e22ce"
+                            : "#2563eb",
                   },
                 ]}
               >
                 {recordingState === "sending" ? (
                   <ActivityIndicator size="large" color="white" />
                 ) : (
-                  <Microphone size={54} color="white" weight={recordingState === "recording" ? "fill" : "bold"} />
+                  <Microphone
+                    size={54}
+                    color="white"
+                    weight={recordingState === "recording" ? "fill" : "bold"}
+                  />
                 )}
               </TouchableOpacity>
             </Animated.View>
@@ -780,12 +907,12 @@ export default function IntercomScreen() {
                   ? `Speaking to ${getTargetPeerName()}…`
                   : "Listening to Prompt…"
                 : recordingState === "sending"
-                ? "Processing Audio…"
-                : recordingState === "confirmed"
-                ? "Audio Sent"
-                : activeMode === "peers"
-                ? `Hold to Talk (${getTargetPeerName()})`
-                : "Hold to Speak to Controller"}
+                  ? "Processing Audio…"
+                  : recordingState === "confirmed"
+                    ? "Audio Sent"
+                    : activeMode === "peers"
+                      ? `Hold to Talk (${getTargetPeerName()})`
+                      : "Hold to Speak to Controller"}
             </Text>
             <Text style={styles.stateLabelSubtitle}>
               {recordingState === "recording"
@@ -801,7 +928,9 @@ export default function IntercomScreen() {
             <CheckCircle size={24} color="#4ADE80" weight="fill" />
             <View style={{ flex: 1 }}>
               <Text style={styles.resultTag}>
-                {activeMode === "peers" ? "Intercom Message Sent" : "Desktop Recognized & Executed"}
+                {activeMode === "peers"
+                  ? "Intercom Message Sent"
+                  : "Desktop Recognized & Executed"}
               </Text>
               <Text style={styles.resultText}>"{transcriptResult}"</Text>
             </View>
