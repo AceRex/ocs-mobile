@@ -13,6 +13,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import * as FileSystem from "expo-file-system/legacy";
+import * as Haptics from "expo-haptics";
 import {
   AudioModule,
   RecordingPresets,
@@ -43,6 +44,7 @@ export default function IntercomScreen() {
     isConnected,
     isPaired,
     isAdmin,
+    deviceRole,
     setVoiceActive,
     sendVoiceAudio,
     peers,
@@ -52,6 +54,10 @@ export default function IntercomScreen() {
     clearIncomingIntercom,
     streamMicChunk,
   } = useSocketStore();
+
+  // Role-based access: admin and stageManager can use controller + mic modes
+  const canUseControllerMode = deviceRole === 'admin' || deviceRole === 'stageManager';
+  const canUseMicMode = deviceRole === 'admin' || deviceRole === 'stageManager';
 
   const [activeMode, setActiveMode] = useState<IntercomMode>("peers");
   const [selectedTargetPeer, setSelectedTargetPeer] = useState<string>("all"); // 'all' or socketId
@@ -111,6 +117,10 @@ export default function IntercomScreen() {
   const liveMicIntervalRef = useRef<any>(null);
   const liveMicActiveRef = useRef(false);
   const continuousChunkIndexRef = useRef(0);
+  // Hold-to-talk gate: peers mode requires ≥500ms hold before mic activates
+  const holdTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const holdActivatedRef = useRef(false);
+  const [isHoldPressing, setIsHoldPressing] = useState(false);
 
   useEffect(() => {
     // Check permission on mount
@@ -288,6 +298,38 @@ export default function IntercomScreen() {
     }
   }, [recordingState]);
 
+  // Peers PTT: press-in arms the hold timer; mic only fires after 500ms hold
+  const handlePttPressIn = () => {
+    if (activeMode !== "peers") {
+      // Controller mode: immediate start
+      startRecording();
+      return;
+    }
+    holdActivatedRef.current = false;
+    setIsHoldPressing(true);
+    holdTimerRef.current = setTimeout(() => {
+      holdActivatedRef.current = true;
+      try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy); } catch (_) {}
+      startRecording();
+    }, 500);
+  };
+
+  const handlePttPressOut = () => {
+    // Cancel hold timer if released before threshold
+    if (holdTimerRef.current) {
+      clearTimeout(holdTimerRef.current);
+      holdTimerRef.current = null;
+    }
+    setIsHoldPressing(false);
+    if (activeMode === "peers" && !holdActivatedRef.current) {
+      // Released too early — mic never activated, nothing to stop
+      holdActivatedRef.current = false;
+      return;
+    }
+    holdActivatedRef.current = false;
+    stopRecording();
+  };
+
   const startRecording = async () => {
     if (!isConnected || !isPaired) {
       setRecordingState("error");
@@ -295,14 +337,18 @@ export default function IntercomScreen() {
       return;
     }
 
-    if (activeMode !== "peers" && !isAdmin) {
+    if ((activeMode === "controller" || activeMode === "mic") && !canUseControllerMode) {
       setRecordingState("error");
       setErrorMessage(
-        "Admin privilege required for Controller and Wireless Mic modes.",
+        deviceRole === "speaker"
+          ? "Speakers can only use the Intercom Peers mode."
+          : "Admin or Stage Manager privilege required for Controller and Wireless Mic modes.",
       );
       Alert.alert(
-        "Admin Access Required",
-        "Controller Voice Prompts and Wireless Mic modes are strictly reserved for Admin devices. Please ask the Desktop Controller operator to grant Admin status in the Remote panel.",
+        "Access Restricted",
+        deviceRole === "speaker"
+          ? "Your role is Speaker. You can only use the Intercom Peers mode to speak to other team members."
+          : "Controller Voice Prompts and Wireless Mic modes are reserved for Admin and Stage Manager devices.",
       );
       return;
     }
@@ -841,8 +887,8 @@ export default function IntercomScreen() {
             >
               <TouchableOpacity
                 activeOpacity={0.8}
-                onPressIn={startRecording}
-                onPressOut={stopRecording}
+                onPressIn={handlePttPressIn}
+                onPressOut={handlePttPressOut}
                 disabled={recordingState === "sending"}
                 style={[
                   styles.pttButton,
@@ -886,14 +932,18 @@ export default function IntercomScreen() {
                   ? "Processing Audio…"
                   : recordingState === "confirmed"
                     ? "Audio Sent"
-                    : activeMode === "peers"
-                      ? `Hold to Talk (${getTargetPeerName()})`
-                      : "Hold to Speak to Controller"}
+                    : isHoldPressing && activeMode === "peers"
+                      ? "Keep holding…"
+                      : activeMode === "peers"
+                        ? `Hold to Talk — ${getTargetPeerName()}`
+                        : "Hold to Speak to Controller"}
             </Text>
             <Text style={styles.stateLabelSubtitle}>
               {recordingState === "recording"
                 ? "Release button when finished speaking"
-                : "Hold and speak clearly into your microphone"}
+                : activeMode === "peers"
+                  ? "Hold the button for 0.5s to activate mic, release when done"
+                  : "Hold and speak clearly into your microphone"}
             </Text>
           </View>
         )}
