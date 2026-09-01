@@ -41,6 +41,10 @@ interface AuthState {
 }
 
 // Persistent Storage Helpers (Native FileSystem + Web LocalStorage)
+const AUTH_STORAGE_FILE = (FileSystem && (FileSystem as any).documentDirectory)
+  ? `${(FileSystem as any).documentDirectory}ocs_mobile_auth.json`
+  : null;
+
 async function loadPersistedData(): Promise<{ token: string | null; user: AuthUser | null; guestStartedAt: number | null }> {
   try {
     if (Platform.OS === 'web' && typeof localStorage !== 'undefined') {
@@ -52,6 +56,9 @@ async function loadPersistedData(): Promise<{ token: string | null; user: AuthUs
         const raw = await FileSystem.readAsStringAsync(AUTH_STORAGE_FILE);
         if (raw) return JSON.parse(raw);
       }
+    } else if (typeof localStorage !== 'undefined') {
+      const raw = localStorage.getItem('ocs_mobile_auth');
+      if (raw) return JSON.parse(raw);
     }
   } catch (err) {
     console.warn('[AuthStore] Failed to load persisted auth:', err);
@@ -66,6 +73,8 @@ async function savePersistedData(data: { token: string | null; user: AuthUser | 
       localStorage.setItem('ocs_mobile_auth', serialized);
     } else if (AUTH_STORAGE_FILE) {
       await FileSystem.writeAsStringAsync(AUTH_STORAGE_FILE, serialized);
+    } else if (typeof localStorage !== 'undefined') {
+      localStorage.setItem('ocs_mobile_auth', serialized);
     }
   } catch (err) {
     console.warn('[AuthStore] Failed to save persisted auth:', err);
