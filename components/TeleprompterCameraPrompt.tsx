@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { View, Text, TouchableOpacity, Modal, StyleSheet } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { useSocketStore } from '../store/socketStore';
@@ -11,9 +11,51 @@ export default function TeleprompterCameraPrompt() {
     const rejectCameraRequest = useSocketStore((state) => state.rejectCameraRequest);
     const stopCameraStream = useSocketStore((state) => state.stopCameraStream);
     const streamMicChunk = useSocketStore((state) => state.streamMicChunk);
+    const sendCameraFrame = useSocketStore((state) => state.sendCameraFrame);
 
     const [permission, requestPermission] = useCameraPermissions();
     const [facing, setFacing] = useState<'front' | 'back'>('front');
+    const cameraRef = useRef<any>(null);
+
+    // Stream camera frames to desktop workstation
+    useEffect(() => {
+        let isMounted = true;
+        let isCapturing = false;
+        let timer: any = null;
+
+        const captureFrame = async () => {
+            if (!isMounted || !isCameraStreaming || !permission?.granted) return;
+            if (!isCapturing && cameraRef.current) {
+                isCapturing = true;
+                try {
+                    const photo = await cameraRef.current.takePictureAsync({
+                        quality: 0.25,
+                        base64: true,
+                        skipProcessing: true,
+                        shutterSound: false,
+                    });
+                    if (photo?.base64 && isMounted) {
+                        sendCameraFrame(photo.base64);
+                    }
+                } catch (_) {
+                } finally {
+                    isCapturing = false;
+                }
+            }
+            if (isMounted && isCameraStreaming) {
+                timer = setTimeout(captureFrame, 200);
+            }
+        };
+
+        if (isCameraStreaming && permission?.granted) {
+            captureFrame();
+        }
+
+        return () => {
+            isMounted = false;
+            if (timer) clearTimeout(timer);
+        };
+    }, [isCameraStreaming, permission?.granted]);
 
     // FR-5.56 [NEW]: Stream microphone audio to desktop ASR during teleprompter camera session
     useEffect(() => {
@@ -52,6 +94,7 @@ export default function TeleprompterCameraPrompt() {
                 <View style={styles.fullscreenContainer}>
                     {permission?.granted ? (
                         <CameraView
+                            ref={cameraRef}
                             style={StyleSheet.absoluteFill}
                             facing={facing}
                         />

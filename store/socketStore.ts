@@ -296,10 +296,12 @@ export const useSocketStore = create<SocketState>((set, get) => ({
             set({ incomingIntercom: { ...message, timestamp: Date.now(), msgId: `${Date.now()}_${Math.random()}` } });
         });
 
-        socket.on('teleprompter:camera-requested', (payload: { fromId: string; scriptTitle: string }) => {
+        const handleCamReq = (payload: { fromId?: string; scriptTitle?: string }) => {
             console.log('[Teleprompter] Received camera request from desktop:', payload);
-            set({ teleprompterCameraRequest: payload });
-        });
+            set({ teleprompterCameraRequest: { fromId: payload?.fromId || '', scriptTitle: payload?.scriptTitle || 'Teleprompter' } });
+        };
+        socket.on('teleprompter:camera-requested', handleCamReq);
+        socket.on('teleprompter:request-camera', handleCamReq);
 
         socket.on('teleprompter:camera-stopped', () => {
             console.log('[Teleprompter] Camera streaming stopped by desktop');
