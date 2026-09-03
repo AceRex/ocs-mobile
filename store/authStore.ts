@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import * as FileSystem from 'expo-file-system/legacy';
 import { Platform } from 'react-native';
 
-const DEFAULT_API_BASE = 'https://ocs-backend-ten.vercel.app';
+const DEFAULT_API_BASE = 'https://ocs-backend-git-main-acerexs-projects.vercel.app';
 const GUEST_DURATION_MS = 60 * 60 * 1000; // 1 hour in milliseconds
 
 export interface AuthUser {
@@ -41,22 +41,31 @@ interface AuthState {
 }
 
 // Persistent Storage Helpers (Native FileSystem + Web LocalStorage)
-const AUTH_STORAGE_FILE = (FileSystem && (FileSystem as any).documentDirectory)
-  ? `${(FileSystem as any).documentDirectory}ocs_mobile_auth.json`
-  : null;
+function getAuthStorageFile(): string | null {
+  try {
+    const docDir = (FileSystem as any)?.documentDirectory;
+    return docDir ? `${docDir}ocs_mobile_auth.json` : null;
+  } catch (_) {
+    return null;
+  }
+}
 
 async function loadPersistedData(): Promise<{ token: string | null; user: AuthUser | null; guestStartedAt: number | null }> {
   try {
     if (Platform.OS === 'web' && typeof localStorage !== 'undefined') {
       const raw = localStorage.getItem('ocs_mobile_auth');
       if (raw) return JSON.parse(raw);
-    } else if (AUTH_STORAGE_FILE) {
-      const info = await FileSystem.getInfoAsync(AUTH_STORAGE_FILE);
-      if (info.exists) {
-        const raw = await FileSystem.readAsStringAsync(AUTH_STORAGE_FILE);
-        if (raw) return JSON.parse(raw);
+    } else {
+      const storageFile = getAuthStorageFile();
+      if (storageFile) {
+        const info = await FileSystem.getInfoAsync(storageFile);
+        if (info.exists) {
+          const raw = await FileSystem.readAsStringAsync(storageFile);
+          if (raw) return JSON.parse(raw);
+        }
       }
-    } else if (typeof localStorage !== 'undefined') {
+    }
+    if (typeof localStorage !== 'undefined') {
       const raw = localStorage.getItem('ocs_mobile_auth');
       if (raw) return JSON.parse(raw);
     }
@@ -71,9 +80,13 @@ async function savePersistedData(data: { token: string | null; user: AuthUser | 
     const serialized = JSON.stringify(data);
     if (Platform.OS === 'web' && typeof localStorage !== 'undefined') {
       localStorage.setItem('ocs_mobile_auth', serialized);
-    } else if (AUTH_STORAGE_FILE) {
-      await FileSystem.writeAsStringAsync(AUTH_STORAGE_FILE, serialized);
-    } else if (typeof localStorage !== 'undefined') {
+    } else {
+      const storageFile = getAuthStorageFile();
+      if (storageFile) {
+        await FileSystem.writeAsStringAsync(storageFile, serialized);
+      }
+    }
+    if (typeof localStorage !== 'undefined') {
       localStorage.setItem('ocs_mobile_auth', serialized);
     }
   } catch (err) {

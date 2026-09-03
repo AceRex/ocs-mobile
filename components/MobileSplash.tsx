@@ -1,4 +1,7 @@
 import React, { useEffect, useState } from "react";
+
+// Build identifier — update this whenever building a new APK to confirm version on device
+const BUILD_ID = "Sep03-00:25";
 import { View, Text, StyleSheet, Animated, ActivityIndicator } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 
@@ -59,7 +62,7 @@ export default function MobileSplash({ onFinish, minDurationMs = 1200 }: MobileS
           <Text style={styles.statusText}>Connecting to companion bus...</Text>
         </View>
       </Animated.View>
-      <Text style={styles.versionText}>Mobile Companion • v1.10</Text>
+      <Text style={styles.versionText}>Mobile Companion • v1.10 • {BUILD_ID}</Text>
     </Animated.View>
   );
 }

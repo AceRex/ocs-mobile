@@ -28,8 +28,17 @@ import { useSocketStore } from "../store/socketStore";
 
 export default function StageControlScreen() {
   const router = useRouter();
-  const { isConnected, isPaired, isAdmin, sendStageControl } = useSocketStore();
+  const { isConnected, isPaired, isAdmin, sendStageControl, overlayContent, overlayTimer } = useSocketStore();
   const [feedback, setFeedback] = useState<{ text: string; ok: boolean } | null>(null);
+
+  const formatTimer = (timer: any): string => {
+    if (timer == null) return "00:00";
+    const sec = typeof timer === "number" ? timer : Number(timer?.time || 0);
+    if (!Number.isFinite(sec) || sec <= 0) return "00:00";
+    const m = Math.floor(sec / 60);
+    const s = Math.floor(sec % 60);
+    return `${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
+  };
 
   const handleCommand = (cmd: string, label: string) => {
     if (!isAdmin) {
@@ -136,6 +145,66 @@ export default function StageControlScreen() {
       )}
 
       <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 40 }} showsVerticalScrollIndicator={false}>
+        {/* Live Stage Monitor */}
+        <View className="mb-6 p-4 rounded-2xl bg-white/[0.04] border border-white/10 shadow-lg">
+          <View className="flex-row items-center justify-between mb-3">
+            <View className="flex-row items-center gap-2">
+              <View
+                className={`w-2.5 h-2.5 rounded-full ${
+                  overlayContent ? "bg-emerald-400" : "bg-red-500"
+                }`}
+              />
+              <Text
+                className={`text-xs font-black tracking-wider uppercase ${
+                  overlayContent ? "text-emerald-400" : "text-red-400"
+                }`}
+              >
+                {overlayContent ? `ON AIR: ${String(overlayContent.type || "Live").toUpperCase()}` : "BLACKOUT / IDLE"}
+              </Text>
+            </View>
+
+            {/* Timer Badge if active */}
+            {overlayTimer != null && (typeof overlayTimer === "number" ? overlayTimer > 0 : Number(overlayTimer?.time) > 0) ? (
+              <View className="flex-row items-center gap-1.5 bg-amber-500/15 border border-amber-500/30 px-2.5 py-1 rounded-lg">
+                <Clock size={13} color="#f59e0b" weight="fill" />
+                <Text className="text-amber-300 font-mono font-bold text-xs">
+                  {formatTimer(overlayTimer)}
+                </Text>
+              </View>
+            ) : null}
+          </View>
+
+          {/* Item Content Preview */}
+          {overlayContent ? (
+            <View className="bg-black/30 p-3 rounded-xl border border-white/5">
+              <Text className="text-white font-bold text-sm mb-1" numberOfLines={1}>
+                {overlayContent.type === "bible"
+                  ? `📖 ${overlayContent.data?.title || "Scripture Passage"}`
+                  : overlayContent.type === "presentation"
+                  ? `📑 Slide ${(overlayContent.data?.slideIndex ?? 0) + 1}${overlayContent.data?.title ? " — " + overlayContent.data.title : ""}`
+                  : overlayContent.type === "scene"
+                  ? `🎵 Scene: ${overlayContent.data?.title || "Live"}`
+                  : `📺 ${overlayContent.type}`}
+              </Text>
+              {overlayContent.data?.fullText ? (
+                <Text className="text-white/60 text-xs leading-relaxed" numberOfLines={2}>
+                  {overlayContent.data.fullText}
+                </Text>
+              ) : overlayContent.data?.subtitle ? (
+                <Text className="text-white/60 text-xs leading-relaxed" numberOfLines={1}>
+                  {overlayContent.data.subtitle}
+                </Text>
+              ) : null}
+            </View>
+          ) : (
+            <View className="bg-black/20 p-3 rounded-xl border border-dashed border-white/10 items-center justify-center py-3">
+              <Text className="text-white/40 text-xs font-medium">
+                Stage screens are currently blacked out or idle
+              </Text>
+            </View>
+          )}
+        </View>
+
         {/* Section 1: Primary Output Controls */}
         <View className="mb-6">
           <Text className="text-white/40 text-[10px] font-black uppercase tracking-widest mb-3">

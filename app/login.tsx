@@ -77,11 +77,11 @@ export default function LoginScreen() {
   };
 
   const handleOpenSignup = () => {
-    Linking.openURL("https://ocs-web-three.vercel.app/signup").catch(() => {});
+    Linking.openURL("https://waveio-git-main-acerexs-projects.vercel.app/signup").catch(() => {});
   };
 
   const handleOpenForgotPassword = () => {
-    Linking.openURL("https://ocs-web-three.vercel.app/forgot-password").catch(
+    Linking.openURL("https://waveio-git-main-acerexs-projects.vercel.app/forgot-password").catch(
       () => {},
     );
   };
