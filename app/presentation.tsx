@@ -125,31 +125,49 @@ export default function PresentationScreen() {
   const scrollRef = useRef<ScrollView | null>(null);
   const scrollOffset = useRef<number>(0);
 
-  // Camera Frame Streaming to Desktop Loop
+  // Camera Frame Streaming to Desktop Loop (Adaptive non-blocking cadence)
   useEffect(() => {
-    let interval: any = null;
+    let isMounted = true;
+    let isCapturing = false;
+    let animFrame: any = null;
+    let lastTime = 0;
+
     if (isCameraActive && cameraPermission?.granted) {
       startCameraSync();
-      interval = setInterval(async () => {
-        try {
-          if (cameraRef.current) {
+      const pump = async () => {
+        if (!isMounted || !isCameraActive || !cameraPermission?.granted) return;
+        const now = performance.now();
+        if (!isCapturing && now - lastTime >= 60 && cameraRef.current) {
+          isCapturing = true;
+          lastTime = now;
+          try {
             const photo = await cameraRef.current.takePictureAsync({
-              quality: 0.25,
+              quality: 0.28,
               base64: true,
               skipProcessing: true,
               shutterSound: false,
+              fastMode: true,
+              maxDownsampling: 2,
             });
-            if (photo?.base64) {
+            if (photo?.base64 && isMounted) {
               sendCameraFrame(photo.base64);
             }
+          } catch (_) {
+          } finally {
+            isCapturing = false;
           }
-        } catch (_) {}
-      }, 200);
+        }
+        if (isMounted && isCameraActive) {
+          animFrame = requestAnimationFrame(pump);
+        }
+      };
+      animFrame = requestAnimationFrame(pump);
     } else {
       stopCameraSync();
     }
     return () => {
-      if (interval) clearInterval(interval);
+      isMounted = false;
+      if (animFrame) cancelAnimationFrame(animFrame);
     };
   }, [isCameraActive, cameraPermission?.granted]);
 
@@ -452,6 +470,7 @@ export default function PresentationScreen() {
               ref={cameraRef}
               style={StyleSheet.absoluteFill}
               facing={cameraFacing}
+              animateShutter={false}
             />
           </View>
         )}
