@@ -151,14 +151,7 @@ export default function LoginScreen() {
             {/* Email Field */}
             <View style={styles.inputGroup}>
               <Text style={styles.inputLabel}>EMAIL ADDRESS</Text>
-              <View style={styles.inputWrapper}>
-                <View pointerEvents="none">
-                  <EnvelopeSimple
-                    size={20}
-                    color="rgba(255,255,255,0.4)"
-                    weight="bold"
-                  />
-                </View>
+              <View style={styles.inputContainer}>
                 <TextInput
                   ref={emailRef}
                   value={email}
@@ -174,8 +167,16 @@ export default function LoginScreen() {
                   returnKeyType="next"
                   onSubmitEditing={() => passwordRef.current?.focus()}
                   blurOnSubmit={false}
-                  style={styles.textInput}
+                  showSoftInputOnFocus={true}
+                  style={styles.textInputWithIcon}
                 />
+                <View style={styles.inputIconLeft} pointerEvents="none">
+                  <EnvelopeSimple
+                    size={20}
+                    color="rgba(255,255,255,0.4)"
+                    weight="bold"
+                  />
+                </View>
               </View>
             </View>
 
@@ -190,14 +191,7 @@ export default function LoginScreen() {
                   <Text style={styles.forgotText}>Forgot password?</Text>
                 </TouchableOpacity>
               </View>
-              <View style={styles.inputWrapper}>
-                <View pointerEvents="none">
-                  <LockSimple
-                    size={20}
-                    color="rgba(255,255,255,0.4)"
-                    weight="bold"
-                  />
-                </View>
+              <View style={styles.inputContainer}>
                 <TextInput
                   ref={passwordRef}
                   value={password}
@@ -212,12 +206,20 @@ export default function LoginScreen() {
                   autoCorrect={false}
                   returnKeyType="done"
                   onSubmitEditing={handleLogin}
-                  style={styles.textInput}
+                  showSoftInputOnFocus={true}
+                  style={[styles.textInputWithIcon, { paddingRight: 48 }]}
                 />
+                <View style={styles.inputIconLeft} pointerEvents="none">
+                  <LockSimple
+                    size={20}
+                    color="rgba(255,255,255,0.4)"
+                    weight="bold"
+                  />
+                </View>
                 <TouchableOpacity
                   onPress={() => setShowPassword(!showPassword)}
                   activeOpacity={0.7}
-                  style={styles.eyeButton}
+                  style={styles.eyeButtonAbsolute}
                   hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
                 >
                   {showPassword ? (
@@ -409,26 +411,33 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: "700",
   },
-  inputWrapper: {
-    flexDirection: "row",
-    alignItems: "center",
+  inputContainer: {
+    position: "relative",
+    width: "100%",
+    justifyContent: "center",
+  },
+  textInputWithIcon: {
+    width: "100%",
+    height: 52,
     backgroundColor: "#1E1E24",
     borderWidth: 1,
     borderColor: "rgba(255, 255, 255, 0.12)",
     borderRadius: 16,
-    paddingHorizontal: 14,
-    height: 52,
-    gap: 10,
-  },
-  textInput: {
-    flex: 1,
-    height: "100%",
+    paddingLeft: 46,
+    paddingRight: 16,
     color: "#ffffff",
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: "600",
-    paddingVertical: 0,
   },
-  eyeButton: {
+  inputIconLeft: {
+    position: "absolute",
+    left: 14,
+    zIndex: 2,
+  },
+  eyeButtonAbsolute: {
+    position: "absolute",
+    right: 12,
+    zIndex: 2,
     padding: 6,
   },
   submitButtonWrapper: {
