@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import * as FileSystem from 'expo-file-system/legacy';
 import { Platform } from 'react-native';
 
-const DEFAULT_API_BASE = 'https://ocs-backend-git-main-acerexs-projects.vercel.app';
+const DEFAULT_API_BASE = 'https://ocs-backend-ten.vercel.app';
 const GUEST_DURATION_MS = 60 * 60 * 1000; // 1 hour in milliseconds
 
 export interface AuthUser {
