@@ -4,14 +4,11 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
-  Pressable,
   ScrollView,
   KeyboardAvoidingView,
   Platform,
   ActivityIndicator,
   StyleSheet,
-  TouchableWithoutFeedback,
-  Keyboard,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { LinearGradient } from "expo-linear-gradient";
@@ -96,185 +93,180 @@ export default function LoginScreen() {
     <SafeAreaView style={styles.safeArea}>
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : undefined}
-        keyboardVerticalOffset={Platform.OS === "ios" ? 16 : 0}
+        keyboardVerticalOffset={Platform.OS === "ios" ? 44 : 0}
         style={{ flex: 1 }}
       >
-        <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
-          <ScrollView
-            contentContainerStyle={styles.scrollContent}
-            keyboardShouldPersistTaps="always"
-            showsVerticalScrollIndicator={false}
-          >
-            {/* Header Bar */}
-            <View style={styles.topBar}>
-              {!guestExpired ? (
-                <TouchableOpacity
-                  onPress={() => router.back()}
-                  style={styles.backButton}
-                  activeOpacity={0.7}
-                >
-                  <ArrowLeft size={20} color="#ffffff" weight="bold" />
-                </TouchableOpacity>
-              ) : (
-                <View style={{ width: 40 }} />
-              )}
-
-              <View style={styles.logoBadge}>
-                <Text style={styles.logoText}>Login to your account</Text>
-              </View>
-            </View>
-
-            {/* Titles */}
-            <View style={styles.titleSection}>
-              <Text style={styles.mainTitle}>Welcome Back</Text>
-              <Text style={styles.subTitle}>
-                Sign in to your OCS account to unlock all mobile companion
-                features, remote stage controls, and cloud sync.
-              </Text>
-            </View>
-
-            {/* Success Banner */}
-            {successMessage && (
-              <View style={styles.successBanner}>
-                <CheckCircle size={18} color="#34D399" weight="fill" />
-                <Text style={styles.successText}>{successMessage}</Text>
-              </View>
+        <ScrollView
+          contentContainerStyle={styles.scrollContent}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
+          showsVerticalScrollIndicator={false}
+        >
+          {/* Header Bar */}
+          <View style={styles.topBar}>
+            {!guestExpired ? (
+              <TouchableOpacity
+                onPress={() => router.back()}
+                style={styles.backButton}
+                activeOpacity={0.7}
+              >
+                <ArrowLeft size={20} color="#ffffff" weight="bold" />
+              </TouchableOpacity>
+            ) : (
+              <View style={{ width: 40 }} />
             )}
 
-            {/* Error Banner */}
-            {authError && !successMessage && (
-              <View style={styles.errorBanner}>
-                <WarningCircle size={18} color="#F87171" weight="fill" />
-                <Text style={styles.errorText}>{authError}</Text>
-              </View>
-            )}
+            <View style={styles.logoBadge}>
+              <Text style={styles.logoText}>Login to your account</Text>
+            </View>
+          </View>
 
-            {/* Form Fields */}
-            <View style={styles.form}>
-              {/* Email Field */}
-              <View style={styles.inputGroup}>
-                <Text style={styles.inputLabel}>EMAIL ADDRESS</Text>
-                <Pressable
-                  style={styles.inputWrapper}
-                  onPress={() => emailRef.current?.focus()}
-                >
+          {/* Titles */}
+          <View style={styles.titleSection}>
+            <Text style={styles.mainTitle}>Welcome Back</Text>
+            <Text style={styles.subTitle}>
+              Sign in to your OCS account to unlock all mobile companion
+              features, remote stage controls, and cloud sync.
+            </Text>
+          </View>
+
+          {/* Success Banner */}
+          {successMessage && (
+            <View style={styles.successBanner}>
+              <CheckCircle size={18} color="#34D399" weight="fill" />
+              <Text style={styles.successText}>{successMessage}</Text>
+            </View>
+          )}
+
+          {/* Error Banner */}
+          {authError && !successMessage && (
+            <View style={styles.errorBanner}>
+              <WarningCircle size={18} color="#F87171" weight="fill" />
+              <Text style={styles.errorText}>{authError}</Text>
+            </View>
+          )}
+
+          {/* Form Fields */}
+          <View style={styles.form}>
+            {/* Email Field */}
+            <View style={styles.inputGroup}>
+              <Text style={styles.inputLabel}>EMAIL ADDRESS</Text>
+              <View style={styles.inputWrapper}>
+                <View pointerEvents="none">
                   <EnvelopeSimple
                     size={20}
                     color="rgba(255,255,255,0.4)"
                     weight="bold"
                   />
-                  <TextInput
-                    ref={emailRef}
-                    value={email}
-                    onChangeText={(val) => {
-                      setEmail(val);
-                      if (authError) setAuthError(null);
-                    }}
-                    placeholder="pastor@church.org"
-                    placeholderTextColor="rgba(255,255,255,0.3)"
-                    keyboardType="email-address"
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                    returnKeyType="next"
-                    onSubmitEditing={() => passwordRef.current?.focus()}
-                    blurOnSubmit={false}
-                    editable={!isLoading}
-                    style={styles.textInput}
-                  />
-                </Pressable>
-              </View>
-
-              {/* Password Field */}
-              <View style={styles.inputGroup}>
-                <View style={styles.passwordHeader}>
-                  <Text style={styles.inputLabel}>PASSWORD</Text>
-                  <TouchableOpacity
-                    onPress={handleOpenForgotPassword}
-                    activeOpacity={0.7}
-                  >
-                    <Text style={styles.forgotText}>Forgot password?</Text>
-                  </TouchableOpacity>
                 </View>
-                <Pressable
-                  style={styles.inputWrapper}
-                  onPress={() => passwordRef.current?.focus()}
+                <TextInput
+                  ref={emailRef}
+                  value={email}
+                  onChangeText={(val) => {
+                    setEmail(val);
+                    if (authError) setAuthError(null);
+                  }}
+                  placeholder="pastor@church.org"
+                  placeholderTextColor="rgba(255,255,255,0.3)"
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  returnKeyType="next"
+                  onSubmitEditing={() => passwordRef.current?.focus()}
+                  blurOnSubmit={false}
+                  style={styles.textInput}
+                />
+              </View>
+            </View>
+
+            {/* Password Field */}
+            <View style={styles.inputGroup}>
+              <View style={styles.passwordHeader}>
+                <Text style={styles.inputLabel}>PASSWORD</Text>
+                <TouchableOpacity
+                  onPress={handleOpenForgotPassword}
+                  activeOpacity={0.7}
                 >
+                  <Text style={styles.forgotText}>Forgot password?</Text>
+                </TouchableOpacity>
+              </View>
+              <View style={styles.inputWrapper}>
+                <View pointerEvents="none">
                   <LockSimple
                     size={20}
                     color="rgba(255,255,255,0.4)"
                     weight="bold"
                   />
-                  <TextInput
-                    ref={passwordRef}
-                    value={password}
-                    onChangeText={(val) => {
-                      setPassword(val);
-                      if (authError) setAuthError(null);
-                    }}
-                    placeholder="••••••••"
-                    placeholderTextColor="rgba(255,255,255,0.3)"
-                    secureTextEntry={!showPassword}
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                    returnKeyType="done"
-                    onSubmitEditing={handleLogin}
-                    editable={!isLoading}
-                    style={styles.textInput}
-                  />
-                  <TouchableOpacity
-                    onPress={() => setShowPassword(!showPassword)}
-                    activeOpacity={0.7}
-                    style={styles.eyeButton}
-                    hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-                  >
-                    {showPassword ? (
-                      <EyeSlash size={18} color="rgba(255,255,255,0.5)" />
-                    ) : (
-                      <Eye size={18} color="rgba(255,255,255,0.5)" />
-                    )}
-                  </TouchableOpacity>
-                </Pressable>
-              </View>
-
-              {/* Submit Button */}
-              <TouchableOpacity
-                onPress={handleLogin}
-                disabled={isLoading}
-                activeOpacity={0.85}
-                style={styles.submitButtonWrapper}
-              >
-                <LinearGradient
-                  colors={["#7c3aed", "#9333ea", "#db2777"]}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 0 }}
-                  style={styles.submitButton}
+                </View>
+                <TextInput
+                  ref={passwordRef}
+                  value={password}
+                  onChangeText={(val) => {
+                    setPassword(val);
+                    if (authError) setAuthError(null);
+                  }}
+                  placeholder="••••••••"
+                  placeholderTextColor="rgba(255,255,255,0.3)"
+                  secureTextEntry={!showPassword}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  returnKeyType="done"
+                  onSubmitEditing={handleLogin}
+                  style={styles.textInput}
+                />
+                <TouchableOpacity
+                  onPress={() => setShowPassword(!showPassword)}
+                  activeOpacity={0.7}
+                  style={styles.eyeButton}
+                  hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
                 >
-                  {isLoading ? (
-                    <ActivityIndicator size="small" color="#ffffff" />
+                  {showPassword ? (
+                    <EyeSlash size={18} color="rgba(255,255,255,0.5)" />
                   ) : (
-                    <>
-                      <SignIn size={18} color="#ffffff" weight="bold" />
-                      <Text style={styles.submitButtonText}>Sign In to OCS</Text>
-                    </>
+                    <Eye size={18} color="rgba(255,255,255,0.5)" />
                   )}
-                </LinearGradient>
-              </TouchableOpacity>
+                </TouchableOpacity>
+              </View>
             </View>
 
-            {/* Footer Registration Link */}
-            <View style={styles.footer}>
-              <Text style={styles.footerText}>Don't have an account yet?</Text>
-              <TouchableOpacity
-                onPress={handleOpenSignup}
-                style={styles.signupButton}
-                activeOpacity={0.7}
+            {/* Submit Button */}
+            <TouchableOpacity
+              onPress={handleLogin}
+              disabled={isLoading}
+              activeOpacity={0.85}
+              style={styles.submitButtonWrapper}
+            >
+              <LinearGradient
+                colors={["#7c3aed", "#9333ea", "#db2777"]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={styles.submitButton}
               >
-                <Text style={styles.signupText}>Start 60-Day Free Trial</Text>
-                <ArrowSquareOut size={14} color="#C084FC" weight="bold" />
-              </TouchableOpacity>
-            </View>
-          </ScrollView>
-        </TouchableWithoutFeedback>
+                {isLoading ? (
+                  <ActivityIndicator size="small" color="#ffffff" />
+                ) : (
+                  <>
+                    <SignIn size={18} color="#ffffff" weight="bold" />
+                    <Text style={styles.submitButtonText}>Sign In to OCS</Text>
+                  </>
+                )}
+              </LinearGradient>
+            </TouchableOpacity>
+          </View>
+
+          {/* Footer Registration Link */}
+          <View style={styles.footer}>
+            <Text style={styles.footerText}>Don't have an account yet?</Text>
+            <TouchableOpacity
+              onPress={handleOpenSignup}
+              style={styles.signupButton}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.signupText}>Start 60-Day Free Trial</Text>
+              <ArrowSquareOut size={14} color="#C084FC" weight="bold" />
+            </TouchableOpacity>
+          </View>
+        </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );

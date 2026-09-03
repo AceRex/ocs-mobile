@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
-import { useRouter, usePathname } from 'expo-router';
+import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { LockSimple, ShieldWarning, SignIn, CheckCircle } from 'phosphor-react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -9,12 +9,9 @@ import { useAuthStore } from '../store/authStore';
 
 export default function GuestExpiredGate() {
   const router = useRouter();
-  const pathname = usePathname();
   const { isAuthenticated, guestExpired, isLoading } = useAuthStore();
 
-  const isLoginPage = pathname === '/login' || pathname?.includes('login');
-
-  if (isLoading || isAuthenticated || !guestExpired || isLoginPage) {
+  if (isLoading || isAuthenticated || !guestExpired) {
     return null;
   }
 
