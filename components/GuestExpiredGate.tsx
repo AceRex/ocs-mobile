@@ -1,27 +1,30 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Modal } from 'react-native';
-import { useRouter } from 'expo-router';
+import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { useRouter, usePathname } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
-import { LockSimple, ShieldWarning, SignIn, CheckCircle, QrCode } from 'phosphor-react-native';
+import { LockSimple, ShieldWarning, SignIn, CheckCircle } from 'phosphor-react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import * as Haptics from 'expo-haptics';
 import { useAuthStore } from '../store/authStore';
 
 export default function GuestExpiredGate() {
   const router = useRouter();
+  const pathname = usePathname();
   const { isAuthenticated, guestExpired, isLoading } = useAuthStore();
 
-  if (isLoading || isAuthenticated || !guestExpired) {
+  if (isLoading || isAuthenticated || !guestExpired || pathname === '/login') {
     return null;
   }
 
+  const handleSignIn = () => {
+    try {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    } catch (_) {}
+    router.push('/login' as any);
+  };
+
   return (
-    <Modal
-      visible={true}
-      animationType="fade"
-      presentationStyle="fullScreen"
-      statusBarTranslucent
-      transparent={false}
-    >
+    <View style={styles.overlay} pointerEvents="auto">
       <SafeAreaView style={styles.container}>
         <LinearGradient
           colors={['#1c0d24', '#0d0a14', '#15091e']}
@@ -82,7 +85,7 @@ export default function GuestExpiredGate() {
             {/* Action Buttons */}
             <View style={styles.actionGroup}>
               <TouchableOpacity
-                onPress={() => router.push('/login' as any)}
+                onPress={handleSignIn}
                 activeOpacity={0.85}
                 style={styles.loginButtonWrapper}
               >
@@ -96,24 +99,24 @@ export default function GuestExpiredGate() {
                   <Text style={styles.loginButtonText}>Sign In to Unlock</Text>
                 </LinearGradient>
               </TouchableOpacity>
-
-              <TouchableOpacity
-                onPress={() => router.push('/connect')}
-                activeOpacity={0.7}
-                style={styles.connectButton}
-              >
-                <QrCode size={16} color="rgba(255,255,255,0.7)" weight="bold" />
-                <Text style={styles.connectButtonText}>Scan Workstation QR Code</Text>
-              </TouchableOpacity>
             </View>
           </View>
         </LinearGradient>
       </SafeAreaView>
-    </Modal>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  overlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 99999,
+    elevation: 99999,
+  },
   container: {
     flex: 1,
     backgroundColor: '#0d0a14',
@@ -240,17 +243,5 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     textTransform: 'uppercase',
     letterSpacing: 0.8,
-  },
-  connectButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    paddingVertical: 10,
-  },
-  connectButtonText: {
-    color: 'rgba(255, 255, 255, 0.6)',
-    fontSize: 12,
-    fontWeight: '600',
   },
 });
