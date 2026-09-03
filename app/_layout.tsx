@@ -13,6 +13,15 @@ import { useAuthStore } from "../store/authStore";
 
 LogBox.ignoreLogs(["SafeAreaView has been deprecated"]);
 
+// Suppress deprecated SafeAreaView warning from third-party library getters
+const _origWarn = console.warn;
+console.warn = (...args: any[]) => {
+  if (typeof args[0] === "string" && args[0].includes("SafeAreaView has been deprecated")) {
+    return;
+  }
+  _origWarn(...args);
+};
+
 // ─── Global JS Error Handler ────────────────────────────────────────────────
 // Catches unhandled JS errors that would otherwise silently close the app
 const _ErrorUtils = typeof globalThis !== "undefined" ? (globalThis as any).ErrorUtils : null;

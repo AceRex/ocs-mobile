@@ -338,8 +338,13 @@ export const useSocketStore = create<SocketState>((set, get) => ({
             set({ isConnected: false, isPaired: false, overlayContent: null, overlayTimer: null });
         });
 
+        let lastConnWarnTime = 0;
         socket.on('connect_error', (err) => {
-            console.warn('[Remote Socket] Connection notice:', err.message);
+            const now = Date.now();
+            if (now - lastConnWarnTime > 6000) {
+                console.warn('[Remote Socket] Connection notice:', err.message);
+                lastConnWarnTime = now;
+            }
             if (!get().isPaired) {
                 const isTimeout = err.message?.toLowerCase().includes('timeout');
                 const msg = isTimeout
