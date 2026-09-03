@@ -12,7 +12,9 @@ export default function GuestExpiredGate() {
   const pathname = usePathname();
   const { isAuthenticated, guestExpired, isLoading } = useAuthStore();
 
-  if (isLoading || isAuthenticated || !guestExpired || pathname === '/login') {
+  const isLoginPage = pathname === '/login' || pathname?.includes('login');
+
+  if (isLoading || isAuthenticated || !guestExpired || isLoginPage) {
     return null;
   }
 
