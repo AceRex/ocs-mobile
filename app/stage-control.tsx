@@ -3,7 +3,6 @@ import {
   View,
   Text,
   ScrollView,
-  TouchableOpacity,
   StatusBar,
   Alert,
 } from "react-native";
@@ -15,16 +14,25 @@ import {
   MonitorPlay,
   ArrowLeft,
   ArrowRight,
-  SkipBack,
-  SkipForward,
+  CaretDoubleLeft,
+  CaretDoubleRight,
+  BookOpen,
   BookBookmark,
   Clock,
   ShieldCheck,
   LockKey,
   Broadcast,
   CheckCircle,
+  Warning,
+  ArrowUUpLeft,
+  StopCircle,
+  Timer as TimerIcon,
 } from "phosphor-react-native";
 import { useSocketStore } from "../store/socketStore";
+import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "../components/ui/card";
+import { Button } from "../components/ui/button";
+import { Badge } from "../components/ui/badge";
+import { Separator } from "../components/ui/separator";
 
 export default function StageControlScreen() {
   const router = useRouter();
@@ -57,85 +65,106 @@ export default function StageControlScreen() {
         setFeedback({ text: e?.message || "Network error", ok: false });
       })
       .finally(() => {
-        setTimeout(() => setFeedback(null), 2000);
+        setTimeout(() => setFeedback(null), 2500);
       });
   };
 
-  // Non-admin or unpaired guard
+  // ─── Non-Admin or Unpaired Guard ─────────────────────────────────────────────
   if (!isPaired || !isAdmin) {
     return (
-      <SafeAreaView className="flex-1 bg-[#0c0b10] justify-center items-center px-6">
-        <StatusBar barStyle="light-content" />
-        <View className="w-20 h-20 rounded-3xl bg-purple-500/10 border border-purple-500/30 items-center justify-center mb-6">
-          <LockKey size={40} color="#c084fc" weight="duotone" />
-        </View>
-        <Text className="text-2xl font-black text-white text-center mb-2 tracking-tight">
-          Admin Privileges Required
-        </Text>
-        <Text className="text-white/60 text-sm text-center leading-relaxed mb-8 max-w-[280px]">
-          Stage Master Control is reserved for authenticated operators. Please ask the Desktop Controller operator to grant Admin status in the Mobile panel.
-        </Text>
-        <TouchableOpacity
-          onPress={() => router.back()}
-          className="bg-white/10 border border-white/20 py-3.5 px-8 rounded-2xl flex-row items-center gap-2 active:scale-95"
-        >
-          <CaretLeft size={18} color="#ffffff" weight="bold" />
-          <Text className="text-white font-bold text-sm">Return to Dashboard</Text>
-        </TouchableOpacity>
+      <SafeAreaView className="flex-1 bg-zinc-950 justify-center items-center px-6">
+        <StatusBar barStyle="light-content" backgroundColor="#09090b" />
+        <Card className="w-full max-w-sm items-center p-6 border-zinc-800/80 bg-zinc-900/90">
+          <View className="w-16 h-16 rounded-[12px] bg-purple-500/15 border border-purple-500/30 items-center justify-center mb-5">
+            <LockKey size={32} color="#c084fc" weight="duotone" />
+          </View>
+          <Text className="text-xl font-bold text-white text-center mb-2 tracking-tight">
+            Admin Privileges Required
+          </Text>
+          <Text className="text-zinc-400 text-xs text-center leading-relaxed mb-6">
+            Stage Master Control is reserved for authenticated operators. Please request Admin permission in the Desktop Controller mobile panel.
+          </Text>
+          <Button
+            variant="outline"
+            className="w-full"
+            onPress={() => router.back()}
+          >
+            <CaretLeft size={16} color="#ffffff" weight="bold" />
+            <Text className="text-white font-bold text-xs ml-1.5">Return to Dashboard</Text>
+          </Button>
+        </Card>
       </SafeAreaView>
     );
   }
 
-  return (
-    <SafeAreaView className="flex-1 bg-[#0a0a0f]">
-      <StatusBar barStyle="light-content" />
+  const isScreenMuted = !overlayContent;
+  const activeTimerSeconds =
+    overlayTimer != null
+      ? typeof overlayTimer === "number"
+        ? overlayTimer
+        : Number(overlayTimer?.time || 0)
+      : 0;
 
-      {/* Header */}
-      <View className="px-5 py-3 flex-row items-center justify-between border-b border-white/10 bg-[#12111a]/80">
+  return (
+    <SafeAreaView className="flex-1 bg-zinc-950">
+      <StatusBar barStyle="light-content" backgroundColor="#09090b" />
+
+      {/* ─── Header ───────────────────────────────────────────────────────────── */}
+      <View className="px-5 py-3 flex-row items-center justify-between border-b border-zinc-800/80 bg-zinc-950/90">
         <View className="flex-row items-center gap-3">
-          <TouchableOpacity
+          <Button
+            variant="outline"
+            size="icon"
             onPress={() => router.back()}
-            className="w-10 h-10 rounded-xl bg-white/5 border border-white/10 items-center justify-center active:scale-95"
+            className="w-10 h-10 border-zinc-800 bg-zinc-900/80"
           >
-            <CaretLeft size={20} color="#ffffff" weight="bold" />
-          </TouchableOpacity>
+            <CaretLeft size={18} color="#e4e4e7" weight="bold" />
+          </Button>
           <View>
-            <View className="flex-row items-center gap-1.5">
-              <Text className="text-white font-black text-base tracking-tight">
-                Stage Master Control
+            <View className="flex-row items-center gap-2">
+              <Text className="text-white font-bold text-base tracking-tight">
+                Stage Master
               </Text>
-              <View className="bg-purple-500/20 border border-purple-500/40 px-2 py-0.5 rounded-full">
-                <Text className="text-purple-300 text-[9px] font-black uppercase tracking-wider">
-                  Admin
-                </Text>
-              </View>
+              <Badge variant="purple" isPill>
+                Admin
+              </Badge>
             </View>
-            <Text className="text-white/40 text-xs">Live Display &amp; Session Control</Text>
+            <Text className="text-zinc-400 text-xs mt-0.5">Live Output &amp; Presentation Deck</Text>
           </View>
         </View>
 
-        <View className="flex-row items-center gap-1.5 bg-emerald-500/15 border border-emerald-500/30 px-3 py-1.5 rounded-full">
-          <View className="w-2 h-2 rounded-full bg-emerald-400" />
-          <Text className="text-emerald-300 text-xs font-bold font-mono">LIVE SYNC</Text>
-        </View>
+        <Badge variant={isConnected ? "success" : "destructive"} isPill>
+          <View
+            className={`w-1.5 h-1.5 rounded-full ${
+              isConnected ? "bg-emerald-400" : "bg-red-400"
+            }`}
+          />
+          <Text
+            className={`text-[10px] font-bold font-mono tracking-wider ${
+              isConnected ? "text-emerald-400" : "text-red-400"
+            }`}
+          >
+            {isConnected ? "LIVE SYNC" : "OFFLINE"}
+          </Text>
+        </Badge>
       </View>
 
-      {/* Feedback Toast */}
+      {/* ─── Feedback Toast ───────────────────────────────────────────────────── */}
       {feedback && (
         <View
-          className={`mx-5 mt-3 py-2.5 px-4 rounded-xl flex-row items-center gap-2 border ${
+          className={`mx-5 mt-3 py-2.5 px-4 rounded-[12px] flex-row items-center gap-2.5 border ${
             feedback.ok
-              ? "bg-emerald-500/20 border-emerald-500/40"
-              : "bg-red-500/20 border-red-500/40"
+              ? "bg-emerald-950/50 border-emerald-800/60"
+              : "bg-red-950/50 border-red-800/60"
           }`}
         >
           {feedback.ok ? (
             <CheckCircle size={16} color="#34d399" weight="bold" />
           ) : (
-            <ShieldCheck size={16} color="#f87171" weight="bold" />
+            <Warning size={16} color="#f87171" weight="bold" />
           )}
           <Text
-            className={`text-xs font-bold ${
+            className={`text-xs font-bold tracking-tight ${
               feedback.ok ? "text-emerald-300" : "text-red-300"
             }`}
           >
@@ -144,183 +173,268 @@ export default function StageControlScreen() {
         </View>
       )}
 
-      <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 40 }} showsVerticalScrollIndicator={false}>
-        {/* Live Stage Monitor */}
-        <View className="mb-6 p-4 rounded-2xl bg-white/[0.04] border border-white/10 shadow-lg">
-          <View className="flex-row items-center justify-between mb-3">
+      <ScrollView
+        contentContainerStyle={{ padding: 18, paddingBottom: 40 }}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* ─── 1. Live On-Air Master Confidence Monitor ───────────────────────── */}
+        <Card className="mb-5 bg-zinc-900/90 border-zinc-800/80">
+          <CardHeader className="flex-row items-center justify-between pb-0 mb-3">
             <View className="flex-row items-center gap-2">
               <View
-                className={`w-2.5 h-2.5 rounded-full ${
-                  overlayContent ? "bg-emerald-400" : "bg-red-500"
+                className={`w-2 h-2 rounded-full ${
+                  !isScreenMuted ? "bg-emerald-400" : "bg-red-400"
                 }`}
               />
               <Text
-                className={`text-xs font-black tracking-wider uppercase ${
-                  overlayContent ? "text-emerald-400" : "text-red-400"
+                className={`text-[11px] font-bold uppercase tracking-wider ${
+                  !isScreenMuted ? "text-emerald-400" : "text-red-400"
                 }`}
               >
-                {overlayContent ? `ON AIR: ${String(overlayContent.type || "Live").toUpperCase()}` : "BLACKOUT / IDLE"}
+                {!isScreenMuted
+                  ? `ON AIR • ${String(overlayContent?.type || "Live").toUpperCase()}`
+                  : "BLACKOUT • MUTED"}
               </Text>
             </View>
 
-            {/* Timer Badge if active */}
-            {overlayTimer != null && (typeof overlayTimer === "number" ? overlayTimer > 0 : Number(overlayTimer?.time) > 0) ? (
-              <View className="flex-row items-center gap-1.5 bg-amber-500/15 border border-amber-500/30 px-2.5 py-1 rounded-lg">
-                <Clock size={13} color="#f59e0b" weight="fill" />
-                <Text className="text-amber-300 font-mono font-bold text-xs">
+            {activeTimerSeconds > 0 ? (
+              <Badge variant="amber" isPill>
+                <Clock size={11} color="#f59e0b" weight="fill" />
+                <Text className="text-amber-300 font-mono font-bold text-[11px]">
                   {formatTimer(overlayTimer)}
                 </Text>
-              </View>
+              </Badge>
             ) : null}
-          </View>
+          </CardHeader>
 
-          {/* Item Content Preview */}
-          {overlayContent ? (
-            <View className="bg-black/30 p-3 rounded-xl border border-white/5">
-              <Text className="text-white font-bold text-sm mb-1" numberOfLines={1}>
-                {overlayContent.type === "bible"
-                  ? `📖 ${overlayContent.data?.title || "Scripture Passage"}`
-                  : overlayContent.type === "presentation"
-                  ? `📑 Slide ${(overlayContent.data?.slideIndex ?? 0) + 1}${overlayContent.data?.title ? " — " + overlayContent.data.title : ""}`
-                  : overlayContent.type === "scene"
-                  ? `🎵 Scene: ${overlayContent.data?.title || "Live"}`
-                  : `📺 ${overlayContent.type}`}
-              </Text>
-              {overlayContent.data?.fullText ? (
-                <Text className="text-white/60 text-xs leading-relaxed" numberOfLines={2}>
-                  {overlayContent.data.fullText}
+          {/* Rendered Live Preview Box */}
+          {!isScreenMuted && overlayContent ? (
+            <View className="bg-black/60 p-4 rounded-[12px] border border-zinc-800/90">
+              <View className="flex-row items-center justify-between mb-2">
+                <View className="flex-row items-center gap-2 flex-1 mr-2">
+                  {overlayContent.type === "bible" ? (
+                    <BookOpen size={16} color="#67e8f9" weight="fill" />
+                  ) : overlayContent.type === "presentation" ? (
+                    <Monitor size={16} color="#c084fc" weight="fill" />
+                  ) : (
+                    <Broadcast size={16} color="#f472b6" weight="fill" />
+                  )}
+                  <Text className="text-white font-bold text-sm tracking-tight" numberOfLines={1}>
+                    {overlayContent.type === "bible"
+                      ? overlayContent.data?.title || overlayContent.reference || "Holy Scripture"
+                      : overlayContent.type === "presentation"
+                      ? `Slide ${(overlayContent.data?.slideIndex ?? overlayContent.slideNumber ?? 0) + (overlayContent.data?.slideIndex != null ? 1 : 0)}${
+                          overlayContent.data?.title ? " • " + overlayContent.data.title : ""
+                        }`
+                      : overlayContent.data?.title || "Live Scene"}
+                  </Text>
+                </View>
+
+                {overlayContent.version || overlayContent.data?.version ? (
+                  <Badge variant="secondary">
+                    {overlayContent.version || overlayContent.data?.version}
+                  </Badge>
+                ) : null}
+              </View>
+
+              {overlayContent.data?.fullText || overlayContent.text ? (
+                <Text className="text-zinc-300 text-xs leading-relaxed" numberOfLines={3}>
+                  "{overlayContent.data?.fullText || overlayContent.text}"
                 </Text>
-              ) : overlayContent.data?.subtitle ? (
-                <Text className="text-white/60 text-xs leading-relaxed" numberOfLines={1}>
-                  {overlayContent.data.subtitle}
+              ) : overlayContent.data?.subtitle || overlayContent.subtitle ? (
+                <Text className="text-zinc-400 text-xs leading-relaxed" numberOfLines={2}>
+                  {overlayContent.data?.subtitle || overlayContent.subtitle}
                 </Text>
               ) : null}
             </View>
           ) : (
-            <View className="bg-black/20 p-3 rounded-xl border border-dashed border-white/10 items-center justify-center py-3">
-              <Text className="text-white/40 text-xs font-medium">
-                Stage screens are currently blacked out or idle
+            <View className="bg-black/40 p-5 rounded-[12px] border border-dashed border-zinc-800 items-center justify-center">
+              <Monitor size={28} color="#71717a" weight="thin" />
+              <Text className="text-zinc-400 text-xs font-medium mt-2">
+                Sanctuary screen is blacked out or idle
               </Text>
             </View>
           )}
-        </View>
 
-        {/* Section 1: Primary Output Controls */}
-        <View className="mb-6">
-          <Text className="text-white/40 text-[10px] font-black uppercase tracking-widest mb-3">
-            Primary Output Controls
-          </Text>
-          <View className="grid grid-cols-2 gap-3 flex-row flex-wrap">
-            {/* Blackout */}
-            <TouchableOpacity
-              onPress={() => handleCommand("black_screen", "Blackout")}
-              className="flex-1 min-w-[46%] bg-red-500/15 border border-red-500/30 p-4 rounded-2xl items-center justify-center gap-2 active:scale-95 shadow-lg"
-            >
-              <Monitor size={28} color="#f87171" weight="fill" />
-              <Text className="text-red-300 font-bold text-sm tracking-wide">Blackout</Text>
-              <Text className="text-red-400/60 text-[10px]">Mute Video Feed</Text>
-            </TouchableOpacity>
-
-            {/* Take Live */}
-            <TouchableOpacity
-              onPress={() => handleCommand("screen_on", "Take Live")}
-              className="flex-1 min-w-[46%] bg-emerald-500/15 border border-emerald-500/30 p-4 rounded-2xl items-center justify-center gap-2 active:scale-95 shadow-lg"
-            >
-              <MonitorPlay size={28} color="#34d399" weight="fill" />
-              <Text className="text-emerald-300 font-bold text-sm tracking-wide">Take Live</Text>
-              <Text className="text-emerald-400/60 text-[10px]">Unmute Video Feed</Text>
-            </TouchableOpacity>
+          {/* Quick Output Routing Status Footer */}
+          <View className="flex-row items-center justify-between pt-3 mt-3 border-t border-zinc-800/80">
+            <Text className="text-zinc-400 text-[11px]">Active Routing</Text>
+            <View className="flex-row items-center gap-2">
+              <Badge variant="outline">General View</Badge>
+              <Badge variant="outline">Speaker View</Badge>
+            </View>
           </View>
-        </View>
+        </Card>
 
-        {/* Section 2: Sequential Step Controls */}
-        <View className="mb-6">
-          <Text className="text-white/40 text-[10px] font-black uppercase tracking-widest mb-3">
-            Navigation Controls
-          </Text>
-          <View className="flex-row gap-3 mb-3">
-            {/* Previous */}
-            <TouchableOpacity
-              onPress={() => handleCommand("prev_verse", "Previous")}
-              className="flex-1 bg-white/5 border border-white/10 p-4 rounded-2xl items-center justify-center gap-2 active:scale-95"
-            >
-              <ArrowLeft size={24} color="#e2e8f0" weight="bold" />
-              <Text className="text-white font-bold text-xs tracking-wide">◀ Previous</Text>
-            </TouchableOpacity>
-
-            {/* Next */}
-            <TouchableOpacity
-              onPress={() => handleCommand("next_verse", "Next")}
-              className="flex-1 bg-cyan-500/15 border border-cyan-500/30 p-4 rounded-2xl items-center justify-center gap-2 active:scale-95"
-            >
-              <ArrowRight size={24} color="#67e8f9" weight="bold" />
-              <Text className="text-cyan-300 font-bold text-xs tracking-wide">Next ▶</Text>
-            </TouchableOpacity>
-          </View>
-
-          {/* Jump Shortcuts */}
-          <View className="flex-row gap-2.5">
-            <TouchableOpacity
-              onPress={() => handleCommand("first_slide", "First Item")}
-              className="flex-1 bg-white/5 border border-white/10 py-3 rounded-xl items-center active:scale-95"
-            >
-              <Text className="text-white/70 font-bold text-[11px]">⏮ First</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              onPress={() => handleCommand("last_slide", "Last Item")}
-              className="flex-1 bg-white/5 border border-white/10 py-3 rounded-xl items-center active:scale-95"
-            >
-              <Text className="text-white/70 font-bold text-[11px]">⏭ Last</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              onPress={() => handleCommand("first_verse", "First Verse")}
-              className="flex-1 bg-white/5 border border-white/10 py-3 rounded-xl items-center active:scale-95"
-            >
-              <Text className="text-white/70 font-bold text-[11px]">📖 1st Verse</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              onPress={() => handleCommand("last_verse", "Last Verse")}
-              className="flex-1 bg-white/5 border border-white/10 py-3 rounded-xl items-center active:scale-95"
-            >
-              <Text className="text-white/70 font-bold text-[11px]">📖 End Verse</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-
-        {/* Section 3: Quick Stage Timers */}
-        <View className="mb-6">
-          <Text className="text-white/40 text-[10px] font-black uppercase tracking-widest mb-3">
-            Quick Stage Timers
-          </Text>
-          <View className="flex-row flex-wrap gap-2.5">
-            {["5m", "10m", "15m", "30m"].map((timeLabel) => (
-              <TouchableOpacity
-                key={timeLabel}
-                onPress={() => handleCommand(`timer_${timeLabel}`, `${timeLabel} Timer`)}
-                className="flex-1 min-w-[20%] bg-white/5 border border-white/10 py-3.5 rounded-xl items-center justify-center active:scale-95"
+        {/* ─── 2. Primary Broadcast Shutter Controls ─────────────────────────── */}
+        <Card className="mb-5 bg-zinc-900/90 border-zinc-800/80">
+          <CardHeader className="pb-0 mb-3">
+            <CardTitle className="text-xs font-bold uppercase tracking-wider text-zinc-400">
+              Broadcast Shutter
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-0">
+            <View className="flex-row gap-3">
+              {/* Blackout */}
+              <Button
+                variant="destructiveOutline"
+                onPress={() => handleCommand("black_screen", "Blackout")}
+                className="flex-1 h-20 flex-col items-center justify-center p-2 rounded-[12px] border-red-900/50 bg-red-950/20"
               >
-                <Text className="text-white font-mono font-bold text-xs">⏱ {timeLabel}</Text>
-              </TouchableOpacity>
-            ))}
-            <TouchableOpacity
-              onPress={() => handleCommand("timer_clear", "Clear Timer")}
-              className="bg-red-500/10 border border-red-500/25 px-4 py-3.5 rounded-xl items-center justify-center active:scale-95"
-            >
-              <Text className="text-red-400 font-bold text-xs">Clear</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
+                <Monitor size={22} color="#f87171" weight="fill" />
+                <Text className="text-red-300 font-bold text-xs mt-1.5">Blackout</Text>
+                <Text className="text-red-400/60 text-[10px] mt-0.5">Mute Screen</Text>
+              </Button>
 
-        {/* Security Badge Footer */}
-        <View className="bg-white/[0.03] border border-white/5 p-4 rounded-2xl flex-row items-center gap-3">
-          <ShieldCheck size={24} color="#c084fc" weight="duotone" />
-          <View className="flex-1">
-            <Text className="text-white font-bold text-xs">Admin Session Verified</Text>
-            <Text className="text-white/40 text-[11px] mt-0.5 leading-relaxed">
-              Your device is paired and authorized by the OCS Controller operator.
-            </Text>
+              {/* Take Live */}
+              <Button
+                variant="successOutline"
+                onPress={() => handleCommand("screen_on", "Take Live")}
+                className="flex-1 h-20 flex-col items-center justify-center p-2 rounded-[12px] border-emerald-900/50 bg-emerald-950/20"
+              >
+                <MonitorPlay size={22} color="#34d399" weight="fill" />
+                <Text className="text-emerald-300 font-bold text-xs mt-1.5">Take Live</Text>
+                <Text className="text-emerald-400/60 text-[10px] mt-0.5">Unmute Screen</Text>
+              </Button>
+            </View>
+          </CardContent>
+        </Card>
+
+        {/* ─── 3. Transport & Navigation Deck ─────────────────────────────────── */}
+        <Card className="mb-5 bg-zinc-900/90 border-zinc-800/80">
+          <CardHeader className="pb-0 mb-3">
+            <CardTitle className="text-xs font-bold uppercase tracking-wider text-zinc-400">
+              Transport &amp; Navigation Deck
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {/* Primary Step Row */}
+            <View className="flex-row gap-3">
+              <Button
+                variant="outline"
+                size="lg"
+                onPress={() => handleCommand("prev_verse", "Previous Item")}
+                className="flex-1 h-14 bg-zinc-900/80 border-zinc-800"
+              >
+                <ArrowLeft size={20} color="#e4e4e7" weight="bold" />
+                <Text className="text-white font-bold text-sm ml-2">Previous</Text>
+              </Button>
+
+              <Button
+                variant="accent"
+                size="lg"
+                onPress={() => handleCommand("next_verse", "Next Item")}
+                className="flex-1 h-14 bg-cyan-600 border-cyan-500"
+              >
+                <Text className="text-white font-bold text-sm mr-2">Next</Text>
+                <ArrowRight size={20} color="#ffffff" weight="bold" />
+              </Button>
+            </View>
+
+            {/* 2x2 Balanced Jump Shortcuts */}
+            <View className="flex-row gap-2.5">
+              <Button
+                variant="secondary"
+                onPress={() => handleCommand("first_slide", "First Slide")}
+                className="flex-1 py-3 bg-zinc-800/80 border border-zinc-700/50"
+              >
+                <CaretDoubleLeft size={14} color="#a1a1aa" weight="bold" />
+                <Text className="text-zinc-200 font-bold text-xs ml-1.5">1st Slide</Text>
+              </Button>
+
+              <Button
+                variant="secondary"
+                onPress={() => handleCommand("last_slide", "Last Slide")}
+                className="flex-1 py-3 bg-zinc-800/80 border border-zinc-700/50"
+              >
+                <Text className="text-zinc-200 font-bold text-xs mr-1.5">End Slide</Text>
+                <CaretDoubleRight size={14} color="#a1a1aa" weight="bold" />
+              </Button>
+            </View>
+
+            <View className="flex-row gap-2.5">
+              <Button
+                variant="secondary"
+                onPress={() => handleCommand("first_verse", "First Verse")}
+                className="flex-1 py-3 bg-zinc-800/80 border border-zinc-700/50"
+              >
+                <BookOpen size={14} color="#a1a1aa" weight="bold" />
+                <Text className="text-zinc-200 font-bold text-xs ml-1.5">1st Verse</Text>
+              </Button>
+
+              <Button
+                variant="secondary"
+                onPress={() => handleCommand("last_verse", "Last Verse")}
+                className="flex-1 py-3 bg-zinc-800/80 border border-zinc-700/50"
+              >
+                <Text className="text-zinc-200 font-bold text-xs mr-1.5">End Verse</Text>
+                <BookBookmark size={14} color="#a1a1aa" weight="bold" />
+              </Button>
+            </View>
+
+            {/* Return to Presentation Shortcut */}
+            <Button
+              variant="outline"
+              onPress={() => handleCommand("return_to_presentation", "Return to Slides")}
+              className="w-full py-2.5 bg-zinc-950/60 border-zinc-800"
+            >
+              <ArrowUUpLeft size={15} color="#c084fc" weight="bold" />
+              <Text className="text-purple-300 font-bold text-xs ml-2">
+                Return to Slide Deck
+              </Text>
+            </Button>
+          </CardContent>
+        </Card>
+
+        {/* ─── 4. Quick Stage Timers ──────────────────────────────────────────── */}
+        <Card className="mb-5 bg-zinc-900/90 border-zinc-800/80">
+          <CardHeader className="pb-0 mb-3">
+            <CardTitle className="text-xs font-bold uppercase tracking-wider text-zinc-400">
+              Stage Timers
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <View className="flex-row gap-2">
+              {["5m", "10m", "15m", "30m"].map((timeLabel) => (
+                <Button
+                  key={timeLabel}
+                  variant="outline"
+                  onPress={() => handleCommand(`timer_${timeLabel}`, `${timeLabel} Timer`)}
+                  className="flex-1 py-2.5 bg-zinc-900/80 border-zinc-800"
+                >
+                  <Clock size={12} color="#f59e0b" weight="fill" />
+                  <Text className="text-zinc-200 font-mono font-bold text-xs ml-1">
+                    {timeLabel}
+                  </Text>
+                </Button>
+              ))}
+            </View>
+
+            <Button
+              variant="destructiveOutline"
+              onPress={() => handleCommand("timer_clear", "Clear Timer")}
+              className="w-full py-2.5 border-red-900/40 bg-red-950/20"
+            >
+              <StopCircle size={15} color="#f87171" weight="bold" />
+              <Text className="text-red-400 font-bold text-xs ml-2">Reset Stage Timer</Text>
+            </Button>
+          </CardContent>
+        </Card>
+
+        {/* ─── 5. Security & Workstation Status ─────────────────────────────────── */}
+        <Card className="bg-zinc-900/40 border-zinc-800/50 p-4">
+          <View className="flex-row items-center gap-3">
+            <View className="w-10 h-10 rounded-[12px] bg-purple-500/10 border border-purple-500/30 items-center justify-center">
+              <ShieldCheck size={20} color="#c084fc" weight="duotone" />
+            </View>
+            <View className="flex-1">
+              <Text className="text-white font-bold text-xs">Admin Session Active</Text>
+              <Text className="text-zinc-400 text-[11px] mt-0.5 leading-relaxed">
+                Device authorized by OCS Desktop Controller. Commands sync immediately over LAN.
+              </Text>
+            </View>
           </View>
-        </View>
+        </Card>
       </ScrollView>
     </SafeAreaView>
   );

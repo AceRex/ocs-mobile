@@ -3,12 +3,11 @@ import {
   View,
   Text,
   ScrollView,
-  TouchableOpacity,
   TextInput,
   StatusBar,
-  StyleSheet,
   Alert,
   Modal,
+  TouchableOpacity,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -20,21 +19,23 @@ import {
   Pause,
   ArrowLeft,
   ArrowRight,
-  TextT,
   ArrowsClockwise,
   Clock,
   Broadcast,
   Eye,
   VideoCamera,
   NotePencil,
-  BookOpen,
   Article,
-  Sliders,
   CheckCircle,
   X,
+  BookOpen,
   Sparkle,
 } from "phosphor-react-native";
 import { useSocketStore } from "../store/socketStore";
+import { Card } from "../components/ui/card";
+import { Button } from "../components/ui/button";
+import { Badge } from "../components/ui/badge";
+import { TabsList, TabsTrigger } from "../components/ui/tabs";
 
 const PRESET_TEMPLATES = [
   {
@@ -97,8 +98,6 @@ export default function PresentationScreen() {
     sendStageControl,
     overlayContent,
     overlayTimer,
-    isCameraStreaming,
-    stopCameraStream,
     shareContentToDesktop,
     sendCameraFrame,
     startCameraSync,
@@ -125,7 +124,7 @@ export default function PresentationScreen() {
   const scrollRef = useRef<ScrollView | null>(null);
   const scrollOffset = useRef<number>(0);
 
-  // Camera Frame Streaming to Desktop Loop (Adaptive non-blocking cadence)
+  // Camera Frame Streaming to Desktop Loop (Adaptive non-blocking pump)
   useEffect(() => {
     let isMounted = true;
     let isCapturing = false;
@@ -200,7 +199,7 @@ export default function PresentationScreen() {
     }
     setIsCameraActive((prev) => {
       const next = !prev;
-      showFeedback(next ? "Camera Sync Active — Streaming" : "Camera Sync Stopped");
+      showFeedback(next ? "Camera Sync Active • Streaming" : "Camera Sync Stopped");
       return next;
     });
   };
@@ -246,7 +245,7 @@ export default function PresentationScreen() {
 
   const showFeedback = (msg: string) => {
     setFeedback(msg);
-    setTimeout(() => setFeedback(null), 1800);
+    setTimeout(() => setFeedback(null), 2000);
   };
 
   const hasLiveOverlay =
@@ -255,251 +254,267 @@ export default function PresentationScreen() {
       overlayContent.text ||
       overlayContent.title ||
       overlayContent.subtitle ||
-      overlayContent.slideNumber);
+      overlayContent.slideNumber ||
+      overlayContent.data);
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <SafeAreaView className="flex-1 bg-black">
       <StatusBar barStyle="light-content" backgroundColor="#000000" />
 
-      {/* ─── Top Header Bar ─── */}
-      <View style={styles.header}>
-        <TouchableOpacity
-          onPress={() => router.back()}
-          style={styles.backButton}
-          activeOpacity={0.7}
-        >
-          <CaretLeft size={22} color="#FFFFFF" weight="bold" />
-        </TouchableOpacity>
-
-        <View style={styles.headerTitleGroup}>
-          <Text style={styles.headerTitle}>Stage Teleprompter</Text>
-          <View style={styles.headerBadgeRow}>
-            <View
-              style={[
-                styles.statusDot,
-                { backgroundColor: isPaired ? "#34D399" : "#F87171" },
-              ]}
-            />
-            <Text style={styles.headerSubtext}>
-              {isPaired ? "Synced to Workstation" : "Offline Mode"}
+      {/* ─── 1. Header Bar ─────────────────────────────────────────────────── */}
+      <View className="px-4 py-2.5 flex-row items-center justify-between border-b border-zinc-900 bg-zinc-950">
+        <View className="flex-row items-center gap-3">
+          <Button
+            variant="outline"
+            size="icon"
+            onPress={() => router.back()}
+            className="w-9 h-9 border-zinc-800 bg-zinc-900"
+          >
+            <CaretLeft size={18} color="#e4e4e7" weight="bold" />
+          </Button>
+          <View>
+            <Text className="text-white font-bold text-sm tracking-tight">
+              Stage Teleprompter
             </Text>
+            <View className="flex-row items-center gap-1.5 mt-0.5">
+              <View
+                className={`w-1.5 h-1.5 rounded-full ${
+                  isPaired ? "bg-emerald-400" : "bg-red-400"
+                }`}
+              />
+              <Text className="text-zinc-400 text-[11px]">
+                {isPaired ? "Synced to Workstation" : "Offline"}
+              </Text>
+            </View>
           </View>
         </View>
 
-        {/* Live Timer Pill */}
         {overlayTimer != null && (
-          <View style={styles.timerPill}>
-            <Clock size={12} color="#FBBF24" weight="fill" />
-            <Text style={styles.timerPillText}>{formatTimer(overlayTimer)}</Text>
-          </View>
+          <Badge variant="amber" isPill>
+            <Clock size={11} color="#f59e0b" weight="fill" />
+            <Text className="text-amber-300 font-mono font-bold text-xs">
+              {formatTimer(overlayTimer)}
+            </Text>
+          </Badge>
         )}
       </View>
 
-      {/* ─── Stage Toolbar: Mode, Font Size, Mirror, Auto-Scroll ─── */}
-      <View style={styles.toolbar}>
-        {/* Mode Switcher */}
-        <View style={styles.modeTabs}>
-          <TouchableOpacity
+      {/* ─── 2. Segmented Mode Switcher ────────────────────────────────────── */}
+      <View className="px-4 py-2 bg-zinc-950/90 border-b border-zinc-900">
+        <TabsList className="bg-zinc-900/90 border-zinc-800">
+          <TabsTrigger
+            isActive={mode === "live"}
             onPress={() => setMode("live")}
-            style={[styles.modeTab, mode === "live" && styles.modeTabActive]}
-            activeOpacity={0.8}
+            icon={
+              <Broadcast
+                size={14}
+                color={mode === "live" ? "#ffffff" : "#a1a1aa"}
+                weight={mode === "live" ? "fill" : "regular"}
+              />
+            }
           >
-            <Broadcast
-              size={14}
-              color={mode === "live" ? "#FFFFFF" : "rgba(255,255,255,0.5)"}
-              weight={mode === "live" ? "fill" : "regular"}
-            />
-            <Text
-              style={[styles.modeTabText, mode === "live" && styles.modeTabTextActive]}
-            >
-              Live Foldback
-            </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
+            Live Foldback
+          </TabsTrigger>
+          <TabsTrigger
+            isActive={mode === "notes"}
             onPress={() => setMode("notes")}
-            style={[styles.modeTab, mode === "notes" && styles.modeTabActive]}
-            activeOpacity={0.8}
+            icon={
+              <Article
+                size={14}
+                color={mode === "notes" ? "#ffffff" : "#a1a1aa"}
+                weight={mode === "notes" ? "fill" : "regular"}
+              />
+            }
           >
-            <Article
-              size={14}
-              color={mode === "notes" ? "#FFFFFF" : "rgba(255,255,255,0.5)"}
-              weight={mode === "notes" ? "fill" : "regular"}
-            />
-            <Text
-              style={[styles.modeTabText, mode === "notes" && styles.modeTabTextActive]}
-            >
-              Content
-            </Text>
+            Script Reader
+          </TabsTrigger>
+        </TabsList>
+      </View>
+
+      {/* ─── 3. Prompter Tool Belt (Font, Mirror, Camera, Auto-scroll) ─────── */}
+      <View className="px-4 py-2 flex-row items-center justify-between border-b border-zinc-900 bg-zinc-950/60">
+        {/* Left: Font Size Controls */}
+        <View className="flex-row items-center bg-zinc-900 border border-zinc-800 rounded-[12px] p-0.5">
+          <TouchableOpacity
+            onPress={() => setFontSize((s) => Math.max(18, s - 3))}
+            className="w-8 h-8 items-center justify-center rounded-[10px] active:bg-zinc-800"
+          >
+            <Text className="text-zinc-300 font-bold text-xs">A-</Text>
+          </TouchableOpacity>
+          <Text className="text-zinc-400 font-mono text-[11px] px-1.5">
+            {fontSize}
+          </Text>
+          <TouchableOpacity
+            onPress={() => setFontSize((s) => Math.min(52, s + 3))}
+            className="w-8 h-8 items-center justify-center rounded-[10px] active:bg-zinc-800"
+          >
+            <Text className="text-zinc-300 font-bold text-xs">A+</Text>
           </TouchableOpacity>
         </View>
 
-        {/* Right Controls */}
-        <View style={styles.toolControls}>
-          {/* Camera Sync Toggle (Streams phone camera to desktop) */}
-          <TouchableOpacity
-            onPress={handleToggleCameraSync}
-            style={[styles.iconButton, isCameraActive && styles.cameraActiveBtn]}
-            activeOpacity={0.7}
-          >
-            <VideoCamera
-              size={13}
-              color={isCameraActive ? "#34D399" : "rgba(255,255,255,0.7)"}
-              weight={isCameraActive ? "fill" : "regular"}
-            />
-            <Text
-              style={[
-                styles.toolLabel,
-                { color: isCameraActive ? "#34D399" : "rgba(255,255,255,0.7)" },
-              ]}
-            >
-              {isCameraActive ? "Cam Sync" : "Camera"}
-            </Text>
-          </TouchableOpacity>
-
-          {/* Mirror Toggle for Glass Prompters */}
-          <TouchableOpacity
+        {/* Center/Right Actions */}
+        <View className="flex-row items-center gap-2">
+          {/* Glass Mirror Flip */}
+          <Button
+            variant={isMirrored ? "accent" : "outline"}
+            size="sm"
             onPress={() => setIsMirrored(!isMirrored)}
-            style={[styles.iconButton, isMirrored && styles.iconButtonActive]}
-            activeOpacity={0.7}
+            className="h-9 px-2.5 border-zinc-800 bg-zinc-900"
           >
             <Text
-              style={[
-                styles.toolLabel,
-                { color: isMirrored ? "#A855F7" : "rgba(255,255,255,0.7)" },
-              ]}
+              className={`text-xs font-bold ${
+                isMirrored ? "text-white" : "text-zinc-300"
+              }`}
             >
               {isMirrored ? "🪞 Mirrored" : "Mirror"}
             </Text>
-          </TouchableOpacity>
+          </Button>
 
-          {/* Font Size A- / A+ */}
-          <View style={styles.fontControls}>
-            <TouchableOpacity
-              onPress={() => setFontSize((s) => Math.max(18, s - 3))}
-              style={styles.fontBtn}
-              activeOpacity={0.7}
+          {/* Camera Sync Toggle */}
+          <Button
+            variant={isCameraActive ? "successOutline" : "outline"}
+            size="sm"
+            onPress={handleToggleCameraSync}
+            className="h-9 px-2.5 border-zinc-800 bg-zinc-900"
+          >
+            <VideoCamera
+              size={14}
+              color={isCameraActive ? "#34d399" : "#a1a1aa"}
+              weight={isCameraActive ? "fill" : "regular"}
+            />
+            <Text
+              className={`text-xs font-bold ml-1.5 ${
+                isCameraActive ? "text-emerald-300" : "text-zinc-300"
+              }`}
             >
-              <Text style={styles.fontBtnText}>A-</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              onPress={() => setFontSize((s) => Math.min(52, s + 3))}
-              style={styles.fontBtn}
-              activeOpacity={0.7}
-            >
-              <Text style={styles.fontBtnText}>A+</Text>
-            </TouchableOpacity>
-          </View>
+              {isCameraActive ? "Cam On" : "Camera"}
+            </Text>
+          </Button>
 
           {/* Auto-Scroll Toggle */}
-          <TouchableOpacity
+          <Button
+            variant={isAutoScrolling ? "accent" : "outline"}
+            size="sm"
             onPress={() => setIsAutoScrolling(!isAutoScrolling)}
-            style={[
-              styles.scrollToggleBtn,
-              isAutoScrolling && styles.scrollToggleBtnActive,
-            ]}
-            activeOpacity={0.8}
+            className="h-9 px-3 border-zinc-800 bg-zinc-900"
           >
             {isAutoScrolling ? (
-              <Pause size={14} color="#FFFFFF" weight="fill" />
+              <Pause size={13} color="#ffffff" weight="fill" />
             ) : (
-              <Play size={14} color="#FFFFFF" weight="fill" />
+              <Play size={13} color="#ffffff" weight="fill" />
             )}
-            <Text style={styles.scrollToggleText}>
+            <Text className="text-white font-bold text-xs ml-1.5">
               {isAutoScrolling ? "Pause" : "Scroll"}
             </Text>
-          </TouchableOpacity>
+          </Button>
         </View>
       </View>
 
-      {/* Speed Selector bar when auto-scrolling is active */}
+      {/* Speed Selector Slider Bar (when auto-scrolling) */}
       {isAutoScrolling && (
-        <View style={styles.speedBar}>
-          <Text style={styles.speedLabel}>Speed:</Text>
-          {[1, 1.5, 2, 3, 4].map((spd) => (
-            <TouchableOpacity
-              key={spd}
-              onPress={() => setScrollSpeed(spd)}
-              style={[
-                styles.speedPill,
-                scrollSpeed === spd && styles.speedPillActive,
-              ]}
-            >
-              <Text
-                style={[
-                  styles.speedPillText,
-                  scrollSpeed === spd && styles.speedPillTextActive,
-                ]}
+        <View className="px-4 py-2 flex-row items-center justify-between border-b border-zinc-900 bg-zinc-900/60">
+          <View className="flex-row items-center gap-1.5">
+            <Text className="text-zinc-400 text-[11px] font-bold uppercase mr-1">Speed:</Text>
+            {[1, 1.5, 2, 3].map((spd) => (
+              <TouchableOpacity
+                key={spd}
+                onPress={() => setScrollSpeed(spd)}
+                className={`px-2.5 py-1 rounded-[12px] border ${
+                  scrollSpeed === spd
+                    ? "bg-violet-600 border-violet-500"
+                    : "bg-zinc-800 border-zinc-700/60"
+                }`}
               >
-                {spd}x
-              </Text>
-            </TouchableOpacity>
-          ))}
-          <TouchableOpacity
+                <Text
+                  className={`font-mono text-xs font-bold ${
+                    scrollSpeed === spd ? "text-white" : "text-zinc-300"
+                  }`}
+                >
+                  {spd}x
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+
+          <Button
+            variant="ghost"
+            size="sm"
             onPress={() => {
               scrollOffset.current = 0;
               scrollRef.current?.scrollTo({ y: 0, animated: true });
             }}
-            style={styles.rewindBtn}
+            className="h-7 px-2"
           >
-            <ArrowsClockwise size={12} color="rgba(255,255,255,0.7)" weight="bold" />
-            <Text style={styles.rewindText}>Top</Text>
-          </TouchableOpacity>
+            <ArrowsClockwise size={12} color="#a1a1aa" weight="bold" />
+            <Text className="text-zinc-400 text-xs font-bold ml-1">Top</Text>
+          </Button>
         </View>
       )}
 
-      {/* Temporary Feedback Pill */}
+      {/* Temporary Feedback Banner */}
       {feedback && (
-        <View style={styles.feedbackBanner}>
-          <CheckCircle size={14} color="#34D399" weight="fill" />
-          <Text style={styles.feedbackText}>{feedback}</Text>
+        <View className="mx-4 mt-2 py-2 px-3 rounded-[12px] bg-emerald-950/70 border border-emerald-800/60 flex-row items-center gap-2">
+          <CheckCircle size={14} color="#34d399" weight="fill" />
+          <Text className="text-emerald-300 text-xs font-bold">{feedback}</Text>
         </View>
       )}
 
-      {/* ─── Main Teleprompter Reader View ─── */}
+      {/* ─── 4. Main Teleprompter Reader Canvas ─────────────────────────────── */}
       <View
-        style={[
-          styles.prompterContainer,
-          isMirrored && { transform: [{ scaleX: -1 }] },
-        ]}
+        className="flex-1 relative bg-black"
+        style={isMirrored ? { transform: [{ scaleX: -1 }] } : undefined}
       >
+        {/* Subtle Reading Guide Line (anchors speaker eye level at 33% screen height) */}
+        <View
+          pointerEvents="none"
+          className="absolute left-0 right-0 top-1/3 h-[1px] border-b border-dashed border-violet-500/25 z-10"
+        />
+
         {/* Background Camera Viewfinder for Camera Sync */}
         {isCameraActive && cameraPermission?.granted && (
-          <View style={[StyleSheet.absoluteFill, { opacity: cameraOpacity }]}>
+          <View className="absolute inset-0" style={{ opacity: cameraOpacity }}>
             <CameraView
               ref={cameraRef}
-              style={StyleSheet.absoluteFill}
+              className="w-full h-full"
               facing={cameraFacing}
               animateShutter={false}
             />
           </View>
         )}
 
-        {/* Floating Camera Sync Status & Control Deck */}
+        {/* Floating Camera Controls (when camera active) */}
         {isCameraActive && (
-          <View style={styles.floatingCameraBar}>
-            <View style={styles.camLiveBadge}>
-              <View style={styles.camPulseDot} />
-              <Text style={styles.camLiveText}>DESKTOP SYNC STREAMING</Text>
+          <View className="absolute top-3 left-4 right-4 z-20 flex-row items-center justify-between bg-zinc-950/80 p-2 rounded-[12px] border border-zinc-800">
+            <View className="flex-row items-center gap-2">
+              <View className="w-2 h-2 rounded-full bg-emerald-400" />
+              <Text className="text-emerald-400 text-[10px] font-bold font-mono">
+                CAMERA STREAMING
+              </Text>
             </View>
 
-            <View style={{ flexDirection: "row", gap: 6, alignItems: "center" }}>
-              <TouchableOpacity
+            <View className="flex-row items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
                 onPress={() => setCameraFacing((f) => (f === "front" ? "back" : "front"))}
-                style={styles.camControlBtn}
-                activeOpacity={0.8}
+                className="h-7 px-2 bg-zinc-900 border-zinc-700"
               >
-                <ArrowsClockwise size={12} color="#FFFFFF" weight="bold" />
-                <Text style={styles.camControlBtnText}>{cameraFacing === "front" ? "Front" : "Rear"}</Text>
-              </TouchableOpacity>
+                <ArrowsClockwise size={11} color="#ffffff" weight="bold" />
+                <Text className="text-white text-[11px] font-bold ml-1">
+                  {cameraFacing === "front" ? "Front" : "Rear"}
+                </Text>
+              </Button>
 
-              <TouchableOpacity
+              <Button
+                variant="outline"
+                size="sm"
                 onPress={() => setCameraOpacity((op) => (op >= 0.7 ? 0.2 : op + 0.25))}
-                style={styles.camControlBtn}
-                activeOpacity={0.8}
+                className="h-7 px-2 bg-zinc-900 border-zinc-700"
               >
-                <Text style={styles.camControlBtnText}>{Math.round(cameraOpacity * 100)}%</Text>
-              </TouchableOpacity>
+                <Text className="text-white text-[11px] font-bold">
+                  {Math.round(cameraOpacity * 100)}%
+                </Text>
+              </Button>
             </View>
           </View>
         )}
@@ -510,787 +525,261 @@ export default function PresentationScreen() {
             scrollOffset.current = e.nativeEvent.contentOffset.y;
           }}
           scrollEventThrottle={16}
-          contentContainerStyle={styles.scrollContent}
+          contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 30, paddingBottom: 220 }}
           showsVerticalScrollIndicator={false}
         >
           {mode === "live" ? (
-            /* LIVE FORWARD STAGE CONTENT */
+            /* ─── LIVE FORWARD FOLDBACK ─────────────────────────────────────── */
             hasLiveOverlay ? (
-              <View style={styles.liveContentBox}>
-                {overlayContent.reference ? (
-                  <View style={styles.referenceHeader}>
-                    <Text style={styles.scriptureBadge}>HOLY SCRIPTURE</Text>
-                    <Text style={[styles.referenceTitle, { fontSize: fontSize * 1.1 }]}>
-                      {overlayContent.reference}
+              <View className="space-y-4">
+                {overlayContent.reference || overlayContent.data?.title ? (
+                  <View className="pb-3 border-b border-zinc-900">
+                    <Badge variant="purple" className="self-start mb-2">
+                      {overlayContent.type === "bible" ? "HOLY SCRIPTURE" : "PRESENTATION"}
+                    </Badge>
+                    <Text
+                      className="text-white font-black tracking-tight"
+                      style={{ fontSize: fontSize * 1.05 }}
+                    >
+                      {overlayContent.reference || overlayContent.data?.title || overlayContent.title}
                     </Text>
-                    {overlayContent.version && (
-                      <Text style={styles.versionTag}>{overlayContent.version}</Text>
-                    )}
+                    {overlayContent.version || overlayContent.data?.version ? (
+                      <Text className="text-cyan-400 font-mono text-xs font-bold mt-1">
+                        {overlayContent.version || overlayContent.data?.version}
+                      </Text>
+                    ) : null}
                   </View>
                 ) : null}
 
-                {overlayContent.title ? (
-                  <Text style={[styles.slideTitle, { fontSize: fontSize * 1.05 }]}>
-                    {overlayContent.title}
-                  </Text>
-                ) : null}
-
                 {overlayContent.slideNumber != null && (
-                  <Text style={styles.slideIndexTag}>
+                  <Badge variant="outline" className="self-start">
                     SLIDE {overlayContent.slideNumber}
-                  </Text>
+                  </Badge>
                 )}
 
-                <Text style={[styles.prompterText, { fontSize, lineHeight: fontSize * 1.45 }]}>
-                  {overlayContent.text ||
+                <Text
+                  className="text-zinc-100 font-medium tracking-normal"
+                  style={{ fontSize, lineHeight: fontSize * 1.5 }}
+                >
+                  {overlayContent.data?.fullText ||
+                    overlayContent.text ||
+                    overlayContent.data?.subtitle ||
                     overlayContent.subtitle ||
-                    "Live slide content loaded."}
+                    "Live content loaded on stage screen."}
                 </Text>
               </View>
             ) : (
-              /* IDLE / STANDBY */
-              <View style={styles.standbyBox}>
-                <View style={styles.standbyIconCircle}>
-                  <Monitor size={44} color="#A855F7" weight="duotone" />
+              /* STANDBY / IDLE */
+              <View className="py-16 items-center justify-center">
+                <View className="w-16 h-16 rounded-[12px] bg-purple-500/10 border border-purple-500/30 items-center justify-center mb-4">
+                  <Monitor size={32} color="#c084fc" weight="duotone" />
                 </View>
-                <Text style={styles.standbyTitle}>Stage Standby</Text>
-                <Text style={styles.standbySubtitle}>
-                  {isPaired
-                    ? "Workstation is connected. When scriptures, lyrics, or slides are presented live on the sanctuary screen, they will stream here automatically."
-                    : "Connect to your OCS Workstation on the Connect tab to sync live presentation slides."}
+                <Text className="text-white font-bold text-lg mb-1 tracking-tight">
+                  Stage Standby
                 </Text>
-
-                <TouchableOpacity
+                <Text className="text-zinc-400 text-xs text-center leading-relaxed max-w-[280px] mb-6">
+                  {isPaired
+                    ? "Workstation is connected. Active scriptures, slides, and lyrics will stream to this prompter automatically."
+                    : "Connect to your OCS Workstation on the Connect tab to mirror live stage slides."}
+                </Text>
+                <Button
+                  variant="outline"
                   onPress={() => setMode("notes")}
-                  style={styles.switchNotesBtn}
-                  activeOpacity={0.8}
+                  className="border-zinc-800 bg-zinc-900"
                 >
-                  <Article size={16} color="#FFFFFF" weight="bold" />
-                  <Text style={styles.switchNotesText}>Open Content Editor</Text>
-                </TouchableOpacity>
+                  <Article size={14} color="#ffffff" weight="bold" />
+                  <Text className="text-white font-bold text-xs ml-1.5">Open Script Reader</Text>
+                </Button>
               </View>
             )
           ) : (
-            /* CONTENT SCRIPT & SHARING MODE */
-            <View style={styles.notesBox}>
-              <View style={styles.notesHeaderRow}>
-                <View style={{ flex: 1, marginRight: 8 }}>
-                  <Text style={styles.notesScriptTitle}>{scriptTitle || "Untitled Content"}</Text>
-                </View>
-                
-                <View style={{ flexDirection: "row", gap: 6, alignItems: "center" }}>
-                  {/* Share to Desktop Workstation Button */}
-                  <TouchableOpacity
+            /* ─── SCRIPT / PASTORAL NOTES ─────────────────────────────────── */
+            <View className="space-y-4">
+              <View className="flex-row items-center justify-between pb-3 border-b border-zinc-900">
+                <Text className="text-white font-bold text-base tracking-tight flex-1 mr-2" numberOfLines={1}>
+                  {scriptTitle || "Untitled Script"}
+                </Text>
+                <View className="flex-row items-center gap-2">
+                  <Button
+                    variant="accent"
+                    size="sm"
                     onPress={handleShareToDesktop}
-                    style={styles.shareDesktopBtn}
-                    activeOpacity={0.8}
+                    className="h-8 px-2.5 bg-violet-600 border-violet-500"
                   >
-                    <Broadcast size={13} color="#FFFFFF" weight="bold" />
-                    <Text style={styles.shareDesktopBtnText}>Share to Desktop</Text>
-                  </TouchableOpacity>
-
-                  {/* Edit Script Pill */}
-                  <TouchableOpacity
+                    <Broadcast size={12} color="#ffffff" weight="bold" />
+                    <Text className="text-white font-bold text-[11px] ml-1">Share</Text>
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
                     onPress={() => setIsEditModalOpen(true)}
-                    style={styles.editNotesPill}
-                    activeOpacity={0.8}
+                    className="h-8 px-2.5 border-zinc-800 bg-zinc-900"
                   >
-                    <NotePencil size={13} color="#C084FC" weight="bold" />
-                    <Text style={styles.editNotesPillText}>Edit</Text>
-                  </TouchableOpacity>
+                    <NotePencil size={12} color="#c084fc" weight="bold" />
+                    <Text className="text-purple-300 font-bold text-[11px] ml-1">Edit</Text>
+                  </Button>
                 </View>
               </View>
 
               {customNotes.trim() ? (
-                <Text style={[styles.prompterText, { fontSize, lineHeight: fontSize * 1.5 }]}>
+                <Text
+                  className="text-zinc-100 font-medium tracking-normal"
+                  style={{ fontSize, lineHeight: fontSize * 1.5 }}
+                >
                   {customNotes}
                 </Text>
               ) : (
                 <TouchableOpacity
                   onPress={() => setIsEditModalOpen(true)}
-                  style={styles.emptyContentBox}
                   activeOpacity={0.8}
+                  className="py-16 items-center justify-center border border-dashed border-zinc-800 rounded-[12px] p-6 bg-zinc-950/60"
                 >
-                  <View style={styles.emptyContentIconWrap}>
-                    <NotePencil size={32} color="#C084FC" weight="duotone" />
-                  </View>
-                  <Text style={styles.emptyContentTitle}>No Content Added</Text>
-                  <Text style={styles.emptyContentSub}>
-                    Tap here or click "Edit" above to create or paste your content script. Once created, tap "Share to Desktop" to send it live to your workstation.
+                  <NotePencil size={32} color="#c084fc" weight="duotone" />
+                  <Text className="text-white font-bold text-base mt-3 mb-1">
+                    No Content Added
+                  </Text>
+                  <Text className="text-zinc-400 text-xs text-center leading-relaxed max-w-[280px]">
+                    Tap here to paste speaking notes, sermon outline, or reading script.
                   </Text>
                 </TouchableOpacity>
               )}
             </View>
           )}
-
-          {/* Padding at bottom so prompter can scroll past end */}
-          <View style={{ height: 260 }} />
         </ScrollView>
       </View>
 
-      {/* ─── Bottom Slide Control & Stage Remote Bar ─── */}
-      <View style={styles.bottomBar}>
-        <View style={styles.bottomBarControls}>
-          <TouchableOpacity
-            onPress={() => handleStageCmd("slide_prev", "Previous Slide")}
-            style={styles.stageActionBtn}
-            activeOpacity={0.7}
+      {/* ─── 5. Bottom Transport Remote Bar ───────────────────────────────── */}
+      <View className="px-4 py-3 border-t border-zinc-900 bg-zinc-950">
+        <View className="flex-row items-center gap-2.5">
+          <Button
+            variant="outline"
+            size="lg"
+            onPress={() => handleStageCmd("prev_verse", "Previous Slide")}
+            className="flex-1 h-12 bg-zinc-900 border-zinc-800"
           >
-            <ArrowLeft size={18} color="#FFFFFF" weight="bold" />
-            <Text style={styles.stageActionText}>Prev Slide</Text>
-          </TouchableOpacity>
+            <ArrowLeft size={18} color="#ffffff" weight="bold" />
+            <Text className="text-white font-bold text-xs ml-1.5">Prev</Text>
+          </Button>
 
-          <TouchableOpacity
-            onPress={() => handleStageCmd("screen_off", "Blackout")}
-            style={[styles.stageActionBtn, styles.blackoutBtn]}
-            activeOpacity={0.7}
+          <Button
+            variant="destructiveOutline"
+            size="lg"
+            onPress={() => handleStageCmd("black_screen", "Blackout")}
+            className="flex-1 h-12 border-red-900/50 bg-red-950/20"
           >
-            <Eye size={16} color="#F87171" weight="bold" />
-            <Text style={[styles.stageActionText, { color: "#FCA5A5" }]}>Blackout</Text>
-          </TouchableOpacity>
+            <Eye size={16} color="#f87171" weight="bold" />
+            <Text className="text-red-300 font-bold text-xs ml-1.5">Blackout</Text>
+          </Button>
 
-          <TouchableOpacity
-            onPress={() => handleStageCmd("slide_next", "Next Slide")}
-            style={[styles.stageActionBtn, styles.nextBtn]}
-            activeOpacity={0.7}
+          <Button
+            variant="accent"
+            size="lg"
+            onPress={() => handleStageCmd("next_verse", "Next Slide")}
+            className="flex-1 h-12 bg-cyan-600 border-cyan-500"
           >
-            <Text style={styles.stageActionText}>Next Slide</Text>
-            <ArrowRight size={18} color="#FFFFFF" weight="bold" />
-          </TouchableOpacity>
+            <Text className="text-white font-bold text-xs mr-1.5">Next</Text>
+            <ArrowRight size={18} color="#ffffff" weight="bold" />
+          </Button>
         </View>
       </View>
 
-      {/* ─── Content Editor Modal ─── */}
+      {/* ─── 6. Content Editor Modal ───────────────────────────────────────── */}
       <Modal
         visible={isEditModalOpen}
         animationType="slide"
         presentationStyle="fullScreen"
         onRequestClose={() => setIsEditModalOpen(false)}
       >
-        <SafeAreaView style={styles.modalSafeArea}>
-          <View style={styles.modalHeader}>
-            <TouchableOpacity
+        <SafeAreaView className="flex-1 bg-zinc-950">
+          <View className="px-4 py-3 flex-row items-center justify-between border-b border-zinc-800 bg-zinc-900/90">
+            <Button
+              variant="outline"
+              size="icon"
               onPress={() => setIsEditModalOpen(false)}
-              style={styles.modalCloseBtn}
+              className="w-9 h-9 border-zinc-800 bg-zinc-900"
             >
-              <X size={22} color="#FFFFFF" weight="bold" />
-            </TouchableOpacity>
-            <Text style={styles.modalHeaderTitle}>Content Editor</Text>
-            <TouchableOpacity
+              <X size={18} color="#ffffff" weight="bold" />
+            </Button>
+            <Text className="text-white font-bold text-base tracking-tight">
+              Content Script Editor
+            </Text>
+            <Button
+              variant="default"
+              size="sm"
               onPress={() => setIsEditModalOpen(false)}
-              style={styles.modalDoneBtn}
+              className="h-9 px-4 bg-zinc-100"
             >
-              <Text style={styles.modalDoneText}>Done</Text>
-            </TouchableOpacity>
+              Done
+            </Button>
           </View>
 
-          <ScrollView style={{ flex: 1, padding: 16 }}>
+          <ScrollView className="flex-1 p-4" showsVerticalScrollIndicator={false}>
+            {/* Template Presets */}
+            <Text className="text-zinc-400 text-[10px] font-bold uppercase tracking-wider mb-2">
+              Preset Templates
+            </Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} className="mb-4">
+              <View className="flex-row gap-2">
+                {PRESET_TEMPLATES.map((tpl) => (
+                  <TouchableOpacity
+                    key={tpl.title}
+                    onPress={() => {
+                      setScriptTitle(tpl.title);
+                      setCustomNotes(tpl.content);
+                    }}
+                    className="bg-zinc-900 border border-zinc-800 px-3 py-2 rounded-[12px] active:bg-zinc-800 flex-row items-center gap-1.5"
+                  >
+                    <Sparkle size={12} color="#c084fc" weight="fill" />
+                    <Text className="text-zinc-200 text-xs font-bold">{tpl.title}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </ScrollView>
+
             {/* Title Input */}
-            <Text style={styles.modalSectionLabel}>CONTENT TITLE</Text>
+            <Text className="text-zinc-400 text-[10px] font-bold uppercase tracking-wider mb-1.5">
+              Script Title
+            </Text>
             <TextInput
-              style={styles.titleInput}
               value={scriptTitle}
               onChangeText={setScriptTitle}
-              placeholder="e.g. Opening Remarks / Keynote / Announcements"
-              placeholderTextColor="#555566"
+              placeholder="e.g. Sunday Sermon / Announcements"
+              placeholderTextColor="#71717a"
+              className="bg-zinc-900/90 border border-zinc-800 text-white p-3 rounded-[12px] text-sm font-medium mb-4"
             />
 
             {/* Content Text Input */}
-            <Text style={[styles.modalSectionLabel, { marginTop: 18 }]}>
-              CONTENT SCRIPT / TEXT
+            <Text className="text-zinc-400 text-[10px] font-bold uppercase tracking-wider mb-1.5">
+              Prompter Manuscript &amp; Notes
             </Text>
             <TextInput
-              style={styles.notesTextInput}
               value={customNotes}
               onChangeText={setCustomNotes}
-              placeholder="Type or paste your content, talking points, or reading script here..."
-              placeholderTextColor="#555566"
+              placeholder="Type or paste your sermon outline, speech, or reading notes here..."
+              placeholderTextColor="#71717a"
               multiline
               textAlignVertical="top"
+              className="bg-zinc-900/90 border border-zinc-800 text-white p-3 rounded-[12px] text-sm font-medium min-h-[300px] mb-6 leading-relaxed"
             />
+
+            {/* Share Action */}
+            <Button
+              variant="accent"
+              size="lg"
+              onPress={() => {
+                handleShareToDesktop();
+                setIsEditModalOpen(false);
+              }}
+              className="w-full bg-violet-600 border-violet-500 mb-8"
+            >
+              <Broadcast size={18} color="#ffffff" weight="bold" />
+              <Text className="text-white font-bold text-sm ml-2">
+                Share Directly to Desktop Workstation
+              </Text>
+            </Button>
           </ScrollView>
         </SafeAreaView>
       </Modal>
     </SafeAreaView>
   );
 }
-
-const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: "#000000",
-  },
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    backgroundColor: "#0B0814",
-    borderBottomWidth: 1,
-    borderBottomColor: "rgba(255, 255, 255, 0.08)",
-  },
-  backButton: {
-    padding: 8,
-    borderRadius: 12,
-    backgroundColor: "rgba(255, 255, 255, 0.06)",
-  },
-  headerTitleGroup: {
-    flex: 1,
-    marginLeft: 12,
-  },
-  headerTitle: {
-    color: "#FFFFFF",
-    fontSize: 16,
-    fontWeight: "900",
-    letterSpacing: -0.3,
-  },
-  headerBadgeRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    marginTop: 2,
-  },
-  statusDot: {
-    width: 7,
-    height: 7,
-    borderRadius: 3.5,
-  },
-  headerSubtext: {
-    color: "rgba(255, 255, 255, 0.5)",
-    fontSize: 11,
-    fontWeight: "600",
-  },
-  timerPill: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
-    backgroundColor: "rgba(251, 191, 36, 0.15)",
-    borderColor: "rgba(251, 191, 36, 0.4)",
-    borderWidth: 1,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 12,
-  },
-  timerPillText: {
-    color: "#FBBF24",
-    fontSize: 13,
-    fontWeight: "900",
-    fontFamily: "monospace",
-  },
-  toolbar: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    backgroundColor: "#110D1D",
-    borderBottomWidth: 1,
-    borderBottomColor: "rgba(255, 255, 255, 0.06)",
-  },
-  modeTabs: {
-    flexDirection: "row",
-    backgroundColor: "rgba(255, 255, 255, 0.06)",
-    borderRadius: 12,
-    padding: 3,
-    gap: 4,
-  },
-  modeTab: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 9,
-  },
-  modeTabActive: {
-    backgroundColor: "#7C3AED",
-  },
-  modeTabText: {
-    color: "rgba(255, 255, 255, 0.5)",
-    fontSize: 11,
-    fontWeight: "700",
-  },
-  modeTabTextActive: {
-    color: "#FFFFFF",
-    fontWeight: "800",
-  },
-  toolControls: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-  },
-  iconButton: {
-    paddingHorizontal: 8,
-    paddingVertical: 6,
-    borderRadius: 8,
-    backgroundColor: "rgba(255, 255, 255, 0.06)",
-  },
-  iconButtonActive: {
-    backgroundColor: "rgba(168, 85, 247, 0.2)",
-    borderWidth: 1,
-    borderColor: "#A855F7",
-  },
-  cameraActiveBtn: {
-    backgroundColor: "rgba(16, 185, 129, 0.2)",
-    borderWidth: 1,
-    borderColor: "#10B981",
-  },
-  floatingCameraBar: {
-    position: "absolute",
-    top: 10,
-    left: 12,
-    right: 12,
-    zIndex: 10,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    backgroundColor: "rgba(15, 10, 25, 0.88)",
-    borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.15)",
-    borderRadius: 14,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-  },
-  camLiveBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-  },
-  camPulseDot: {
-    width: 7,
-    height: 7,
-    borderRadius: 3.5,
-    backgroundColor: "#34D399",
-  },
-  camLiveText: {
-    color: "#34D399",
-    fontSize: 9,
-    fontWeight: "900",
-    letterSpacing: 0.5,
-  },
-  camControlBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    backgroundColor: "rgba(255, 255, 255, 0.1)",
-    borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.15)",
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 8,
-  },
-  camControlBtnText: {
-    color: "#FFFFFF",
-    fontSize: 10,
-    fontWeight: "800",
-  },
-  shareDesktopBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
-    backgroundColor: "#7C3AED",
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 10,
-  },
-  shareDesktopBtnText: {
-    color: "#FFFFFF",
-    fontSize: 11,
-    fontWeight: "800",
-  },
-  emptyContentBox: {
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 48,
-    paddingHorizontal: 24,
-    backgroundColor: "rgba(255, 255, 255, 0.03)",
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.08)",
-    borderStyle: "dashed",
-    marginTop: 20,
-  },
-  emptyContentIconWrap: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    backgroundColor: "rgba(168, 85, 247, 0.12)",
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 12,
-  },
-  emptyContentTitle: {
-    color: "#FFFFFF",
-    fontSize: 16,
-    fontWeight: "900",
-    marginBottom: 6,
-  },
-  emptyContentSub: {
-    color: "rgba(255, 255, 255, 0.45)",
-    fontSize: 12,
-    lineHeight: 18,
-    textAlign: "center",
-    maxWidth: 280,
-  },
-  toolLabel: {
-    fontSize: 11,
-    fontWeight: "700",
-  },
-  fontControls: {
-    flexDirection: "row",
-    backgroundColor: "rgba(255, 255, 255, 0.06)",
-    borderRadius: 8,
-    overflow: "hidden",
-  },
-  fontBtn: {
-    paddingHorizontal: 8,
-    paddingVertical: 6,
-  },
-  fontBtnText: {
-    color: "#FFFFFF",
-    fontSize: 11,
-    fontWeight: "800",
-  },
-  scrollToggleBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
-    backgroundColor: "#2563EB",
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 9,
-  },
-  scrollToggleBtnActive: {
-    backgroundColor: "#059669",
-  },
-  scrollToggleText: {
-    color: "#FFFFFF",
-    fontSize: 11,
-    fontWeight: "800",
-  },
-  speedBar: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    paddingHorizontal: 16,
-    paddingVertical: 6,
-    backgroundColor: "#181329",
-    borderBottomWidth: 1,
-    borderBottomColor: "rgba(255, 255, 255, 0.06)",
-  },
-  speedLabel: {
-    color: "rgba(255, 255, 255, 0.5)",
-    fontSize: 10,
-    fontWeight: "700",
-  },
-  speedPill: {
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 6,
-    backgroundColor: "rgba(255, 255, 255, 0.06)",
-  },
-  speedPillActive: {
-    backgroundColor: "#7C3AED",
-  },
-  speedPillText: {
-    color: "rgba(255, 255, 255, 0.7)",
-    fontSize: 10,
-    fontWeight: "700",
-  },
-  speedPillTextActive: {
-    color: "#FFFFFF",
-    fontWeight: "900",
-  },
-  rewindBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    marginLeft: "auto",
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 6,
-    backgroundColor: "rgba(255, 255, 255, 0.08)",
-  },
-  rewindText: {
-    color: "rgba(255, 255, 255, 0.7)",
-    fontSize: 10,
-    fontWeight: "700",
-  },
-  feedbackBanner: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    backgroundColor: "rgba(52, 211, 153, 0.18)",
-    borderColor: "rgba(52, 211, 153, 0.4)",
-    borderWidth: 1,
-    paddingHorizontal: 14,
-    paddingVertical: 6,
-    marginHorizontal: 16,
-    marginTop: 6,
-    borderRadius: 10,
-  },
-  feedbackText: {
-    color: "#34D399",
-    fontSize: 11,
-    fontWeight: "800",
-  },
-  prompterContainer: {
-    flex: 1,
-    backgroundColor: "#000000",
-  },
-  scrollContent: {
-    paddingHorizontal: 24,
-    paddingTop: 28,
-  },
-  liveContentBox: {
-    gap: 16,
-  },
-  referenceHeader: {
-    flexDirection: "column",
-    gap: 4,
-    borderBottomWidth: 1,
-    borderBottomColor: "rgba(255, 255, 255, 0.1)",
-    paddingBottom: 12,
-  },
-  scriptureBadge: {
-    color: "#FBBF24",
-    fontSize: 11,
-    fontWeight: "900",
-    letterSpacing: 1.5,
-  },
-  referenceTitle: {
-    color: "#FDE047",
-    fontWeight: "900",
-    letterSpacing: -0.5,
-  },
-  versionTag: {
-    color: "rgba(255, 255, 255, 0.4)",
-    fontSize: 11,
-    fontWeight: "700",
-  },
-  slideTitle: {
-    color: "#C084FC",
-    fontWeight: "900",
-  },
-  slideIndexTag: {
-    color: "#60A5FA",
-    fontSize: 11,
-    fontWeight: "800",
-    letterSpacing: 1,
-  },
-  prompterText: {
-    color: "#FFFFFF",
-    fontWeight: "600",
-    letterSpacing: 0.2,
-  },
-  standbyBox: {
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 60,
-    paddingHorizontal: 20,
-    gap: 14,
-  },
-  standbyIconCircle: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: "rgba(168, 85, 247, 0.12)",
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1,
-    borderColor: "rgba(168, 85, 247, 0.3)",
-  },
-  standbyTitle: {
-    color: "#FFFFFF",
-    fontSize: 22,
-    fontWeight: "900",
-  },
-  standbySubtitle: {
-    color: "rgba(255, 255, 255, 0.55)",
-    fontSize: 13,
-    textAlign: "center",
-    lineHeight: 20,
-    maxWidth: 320,
-  },
-  switchNotesBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    marginTop: 14,
-    backgroundColor: "#7C3AED",
-    paddingHorizontal: 18,
-    paddingVertical: 12,
-    borderRadius: 14,
-  },
-  switchNotesText: {
-    color: "#FFFFFF",
-    fontSize: 13,
-    fontWeight: "800",
-  },
-  notesBox: {
-    gap: 16,
-  },
-  notesHeaderRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    borderBottomWidth: 1,
-    borderBottomColor: "rgba(255, 255, 255, 0.1)",
-    paddingBottom: 10,
-  },
-  notesScriptTitle: {
-    color: "#A855F7",
-    fontSize: 18,
-    fontWeight: "900",
-    flex: 1,
-    marginRight: 8,
-  },
-  editNotesPill: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
-    backgroundColor: "rgba(168, 85, 247, 0.18)",
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: "rgba(168, 85, 247, 0.3)",
-  },
-  editNotesPillText: {
-    color: "#C084FC",
-    fontSize: 11,
-    fontWeight: "800",
-  },
-  bottomBar: {
-    position: "absolute",
-    bottom: 0,
-    left: 0,
-    right: 0,
-    backgroundColor: "rgba(11, 8, 20, 0.95)",
-    borderTopWidth: 1,
-    borderTopColor: "rgba(255, 255, 255, 0.1)",
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-  },
-  bottomBarControls: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-  },
-  stageActionBtn: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 6,
-    backgroundColor: "#1F1B2E",
-    borderColor: "rgba(255, 255, 255, 0.15)",
-    borderWidth: 1,
-    paddingVertical: 13,
-    borderRadius: 14,
-  },
-  blackoutBtn: {
-    backgroundColor: "rgba(239, 68, 68, 0.15)",
-    borderColor: "rgba(239, 68, 68, 0.3)",
-  },
-  nextBtn: {
-    backgroundColor: "#7C3AED",
-    borderColor: "#8B5CF6",
-  },
-  stageActionText: {
-    color: "#FFFFFF",
-    fontSize: 12,
-    fontWeight: "800",
-  },
-  modalSafeArea: {
-    flex: 1,
-    backgroundColor: "#0B0814",
-  },
-  modalHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: "rgba(255, 255, 255, 0.1)",
-  },
-  modalCloseBtn: {
-    padding: 6,
-  },
-  modalHeaderTitle: {
-    color: "#FFFFFF",
-    fontSize: 16,
-    fontWeight: "800",
-  },
-  modalDoneBtn: {
-    paddingHorizontal: 14,
-    paddingVertical: 6,
-    borderRadius: 10,
-    backgroundColor: "#7C3AED",
-  },
-  modalDoneText: {
-    color: "#FFFFFF",
-    fontSize: 12,
-    fontWeight: "800",
-  },
-  modalSectionLabel: {
-    color: "rgba(255, 255, 255, 0.4)",
-    fontSize: 10,
-    fontWeight: "800",
-    letterSpacing: 1,
-    marginBottom: 8,
-  },
-  presetsRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-  },
-  presetCard: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    backgroundColor: "rgba(255, 255, 255, 0.06)",
-    borderColor: "rgba(255, 255, 255, 0.1)",
-    borderWidth: 1,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 10,
-  },
-  presetCardActive: {
-    backgroundColor: "rgba(168, 85, 247, 0.2)",
-    borderColor: "#A855F7",
-  },
-  presetCardText: {
-    color: "rgba(255, 255, 255, 0.7)",
-    fontSize: 11,
-    fontWeight: "700",
-  },
-  presetCardTextActive: {
-    color: "#FFFFFF",
-    fontWeight: "800",
-  },
-  titleInput: {
-    backgroundColor: "rgba(255, 255, 255, 0.06)",
-    borderColor: "rgba(255, 255, 255, 0.12)",
-    borderWidth: 1,
-    color: "#FFFFFF",
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 12,
-    fontSize: 15,
-    fontWeight: "700",
-  },
-  notesTextInput: {
-    backgroundColor: "rgba(255, 255, 255, 0.06)",
-    borderColor: "rgba(255, 255, 255, 0.12)",
-    borderWidth: 1,
-    color: "#FFFFFF",
-    padding: 14,
-    borderRadius: 14,
-    fontSize: 14,
-    lineHeight: 22,
-    minHeight: 280,
-  },
-});
