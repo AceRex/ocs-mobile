@@ -1,17 +1,23 @@
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useCallback, useRef, useEffect } from "react";
 import {
   View,
   Text,
   TouchableOpacity,
   StatusBar,
   ScrollView,
-  Modal,
   StyleSheet,
   Platform,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
-import { CameraView, useCameraPermissions } from "expo-camera";
+import {
+  mediaDevices,
+  RTCPeerConnection,
+  RTCIceCandidate,
+  RTCSessionDescription,
+  RTCView,
+  MediaStream,
+} from "react-native-webrtc";
 import {
   CaretLeft,
   VideoCamera,
@@ -64,6 +70,9 @@ export default function LiveSwitcherScreen() {
     switcherDisplay1Source,
     switcherDisplay2Source,
     deviceName,
+    serverIp,
+    lastHost,
+    lastPort,
     socket,
     optInAsCamera,
     optOutAsCamera,
@@ -72,8 +81,11 @@ export default function LiveSwitcherScreen() {
     setSwitcherTransitionSetting,
     setSwitcherActiveDisplay,
     setSwitcherDisplaySource,
+    sendWebRtcOffer,
+    sendWebRtcIceCandidate,
+    setWebRtcAnswerHandler,
+    setWebRtcIceHandler,
     requestControlReclaim,
-    sendSwitcherCameraFrame,
   } = useSocketStore();
 
   const effectiveProgramSourceId = switcherActiveDisplay === "display1"
@@ -82,148 +94,206 @@ export default function LiveSwitcherScreen() {
 
   const isThisDeviceProgram = socket?.id != null && socket.id === effectiveProgramSourceId;
 
-  // ── Native Camera Studio State ─────────────────────────────────────────────
-  const [permission, requestPermission] = useCameraPermissions();
-  const [isCameraActive, setIsCameraActive] = useState<boolean>(false);
-  const [showViewfinderModal, setShowViewfinderModal] = useState<boolean>(false);
-  const [facing, setFacing] = useState<'front' | 'back'>('back');
-  const [isMirrored, setIsMirrored] = useState<boolean>(false);
-  const [torch, setTorch] = useState<boolean>(false);
-  const [zoom, setZoom] = useState<number>(0);
-  const [streamQuality, setStreamQuality] = useState<'fast' | 'hd' | 'eco'>('fast');
-  const [pictureSize, setPictureSize] = useState<string | undefined>(undefined);
-  const [sentFps, setSentFps] = useState<number>(0);
+  const [localStream, setLocalStream] = useState<MediaStream | null>(null);
+  const [cameraActive, setCameraActive] = useState<boolean>(false);
+  const [facing, setFacing] = useState<"front" | "environment">("environment");
+  const [isConnecting, setIsConnecting] = useState<boolean>(false);
 
-  const cameraRef = useRef<any>(null);
-  const fpsTrackerRef = useRef({ count: 0, lastCheck: Date.now() });
-
-  // Default front-facing camera to mirrored, rear to normal
-  useEffect(() => {
-    setIsMirrored(facing === 'front');
-  }, [facing]);
-
-  // Keep isCameraActive synced with server camera-slot status
-  useEffect(() => {
-    if (isCameraSource && !isCameraActive) {
-      setIsCameraActive(true);
-    } else if (!isCameraSource && isCameraActive) {
-      setIsCameraActive(false);
-      setShowViewfinderModal(false);
-      setTorch(false);
-    }
-  }, [isCameraSource]);
+  const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
+  const localStreamRef = useRef<MediaStream | null>(null);
 
   const showFeedback = (text: string, ok: boolean) => {
     setFeedback({ text, ok });
     setTimeout(() => setFeedback(null), 3000);
   };
 
-  // Pick optimal low-overhead picture size for streaming on camera ready
-  const handleCameraReady = useCallback(async () => {
-    try {
-      if (cameraRef.current?.getAvailablePictureSizesAsync) {
-        const sizes: string[] = await cameraRef.current.getAvailablePictureSizesAsync();
-        if (sizes && sizes.length > 0) {
-          const preferred =
-            sizes.find((s) => s === '640x480') ||
-            sizes.find((s) => s === '800x600') ||
-            sizes.find((s) => s === '1280x720') ||
-            sizes.find((s) => s === '960x540') ||
-            sizes[sizes.length - 1];
-          if (preferred) setPictureSize(preferred);
-        }
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (localStreamRef.current) {
+        localStreamRef.current.getTracks().forEach((t) => t.stop());
+        localStreamRef.current = null;
       }
-    } catch (_) {}
+      if (peerConnectionRef.current) {
+        peerConnectionRef.current.close();
+        peerConnectionRef.current = null;
+      }
+    };
   }, []);
 
-  // ── High-performance continuous frame streaming engine ────────────────────
+  // Sync state if remote dropped camera status
   useEffect(() => {
-    let isMounted = true;
-    let isCapturing = false;
-    let animFrameId: any = null;
-    let lastCaptureTime = 0;
-
-    const fpsInterval = setInterval(() => {
-      const now = Date.now();
-      const delta = (now - fpsTrackerRef.current.lastCheck) / 1000;
-      if (delta > 0) {
-        setSentFps(Math.round(fpsTrackerRef.current.count / delta));
-        fpsTrackerRef.current.count = 0;
-        fpsTrackerRef.current.lastCheck = now;
+    if (!isCameraSource && cameraActive) {
+      if (localStreamRef.current) {
+        localStreamRef.current.getTracks().forEach((t) => t.stop());
+        localStreamRef.current = null;
+        setLocalStream(null);
       }
-    }, 1000);
-
-    const pumpFrame = async () => {
-      if (!isMounted || !isCameraActive || !permission?.granted) return;
-
-      const now = performance.now();
-      // Cadence pacing: fast = ~45ms (~22fps), hd = ~65ms (~15fps), eco = ~95ms (~10fps)
-      const minInterval = streamQuality === 'fast' ? 45 : streamQuality === 'hd' ? 65 : 95;
-
-      if (!isCapturing && now - lastCaptureTime >= minInterval && cameraRef.current) {
-        isCapturing = true;
-        lastCaptureTime = now;
-        try {
-          const qualityVal = streamQuality === 'hd' ? 0.35 : streamQuality === 'eco' ? 0.18 : 0.25;
-          const photo = await cameraRef.current?.takePictureAsync({
-            quality: qualityVal,
-            base64: true,
-            shutterSound: false,
-          });
-          if (photo?.base64 && isMounted) {
-            sendSwitcherCameraFrame(photo.base64, isMirrored);
-            fpsTrackerRef.current.count++;
-          }
-        } catch (err) {
-          console.warn('[Switcher Camera] Frame capture error:', err);
-        } finally {
-          isCapturing = false;
-        }
+      if (peerConnectionRef.current) {
+        peerConnectionRef.current.close();
+        peerConnectionRef.current = null;
       }
-
-      if (isMounted && isCameraActive) {
-        animFrameId = requestAnimationFrame(pumpFrame);
-      }
-    };
-
-    if (isCameraActive && permission?.granted) {
-      animFrameId = requestAnimationFrame(pumpFrame);
+      setCameraActive(false);
     }
+  }, [isCameraSource, cameraActive]);
 
-    return () => {
-      isMounted = false;
-      if (animFrameId) cancelAnimationFrame(animFrameId);
-      clearInterval(fpsInterval);
-    };
-  }, [isCameraActive, permission?.granted, streamQuality]);
-
-  const handleStartCamera = async () => {
-    if (!permission?.granted) {
-      const permRes = await requestPermission();
-      if (!permRes.granted) {
-        showFeedback("Camera permission is required to stream", false);
+  const handleStartNativeCamera = async () => {
+    if (isConnecting) return;
+    setIsConnecting(true);
+    try {
+      const res = await optInAsCamera();
+      if (!res.ok) {
+        showFeedback(res.error || "Failed to join camera slot", false);
+        setIsConnecting(false);
         return;
       }
-    }
-    const res = await optInAsCamera();
-    if (res.ok) {
-      setIsCameraActive(true);
-      setShowViewfinderModal(true);
-      showFeedback(`Connected as Camera ${res.slotIndex} of 6`, true);
-    } else {
-      showFeedback(res.error || "Failed to join camera slot", false);
+
+      showFeedback(`Connected as Camera ${res.slotIndex || cameraSlotIndex || 1} of 6`, true);
+
+      // Clean up any existing stream/pc
+      if (peerConnectionRef.current) {
+        peerConnectionRef.current.close();
+        peerConnectionRef.current = null;
+      }
+      if (localStreamRef.current) {
+        localStreamRef.current.getTracks().forEach((t) => t.stop());
+        localStreamRef.current = null;
+        setLocalStream(null);
+      }
+
+      const stream = await mediaDevices.getUserMedia({
+        video: {
+          facingMode: facing,
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+          frameRate: { ideal: 30 },
+        },
+        audio: false,
+      });
+
+      localStreamRef.current = stream;
+      setLocalStream(stream);
+
+      const pc = new RTCPeerConnection({
+        iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+      });
+      peerConnectionRef.current = pc;
+
+      stream.getTracks().forEach((track) => {
+        pc.addTrack(track, stream);
+      });
+
+      pc.onicecandidate = (event: any) => {
+        if (event.candidate) {
+          sendWebRtcIceCandidate(event.candidate);
+        }
+      };
+
+      setWebRtcAnswerHandler(async (answer: any) => {
+        try {
+          if (peerConnectionRef.current) {
+            await peerConnectionRef.current.setRemoteDescription(new RTCSessionDescription(answer));
+          }
+        } catch (err) {
+          console.error("[LiveSwitcher] Error setting remote description from answer:", err);
+        }
+      });
+
+      setWebRtcIceHandler(async (candidate: any) => {
+        try {
+          if (peerConnectionRef.current && candidate) {
+            await peerConnectionRef.current.addIceCandidate(new RTCIceCandidate(candidate));
+          }
+        } catch (err) {
+          console.error("[LiveSwitcher] Error adding ICE candidate from desktop:", err);
+        }
+      });
+
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      sendWebRtcOffer(offer);
+
+      setCameraActive(true);
+    } catch (err: any) {
+      console.error("[LiveSwitcher] Failed to start native camera stream:", err);
+      showFeedback(err?.message || "Failed to start camera hardware", false);
+      if (localStreamRef.current) {
+        localStreamRef.current.getTracks().forEach((t) => t.stop());
+        localStreamRef.current = null;
+        setLocalStream(null);
+      }
+      if (peerConnectionRef.current) {
+        peerConnectionRef.current.close();
+        peerConnectionRef.current = null;
+      }
+      setCameraActive(false);
+    } finally {
+      setIsConnecting(false);
     }
   };
 
-  const handleStopCamera = async () => {
-    setIsCameraActive(false);
-    setShowViewfinderModal(false);
-    setTorch(false);
-    const res = await optOutAsCamera();
-    if (res.ok) {
-      showFeedback("Camera stream stopped", true);
-    } else {
-      showFeedback(res.error || "Failed to stop", false);
+  const handleStopNativeCamera = async () => {
+    try {
+      setWebRtcAnswerHandler(null);
+      setWebRtcIceHandler(null);
+
+      if (localStreamRef.current) {
+        localStreamRef.current.getTracks().forEach((t) => t.stop());
+        localStreamRef.current = null;
+        setLocalStream(null);
+      }
+      if (peerConnectionRef.current) {
+        peerConnectionRef.current.close();
+        peerConnectionRef.current = null;
+      }
+      setCameraActive(false);
+
+      const res = await optOutAsCamera();
+      if (res.ok) {
+        showFeedback("Camera stream stopped", true);
+      } else {
+        showFeedback(res.error || "Failed to stop camera slot", false);
+      }
+    } catch (err: any) {
+      showFeedback(err?.message || "Error stopping camera", false);
+    }
+  };
+
+  const handleFlipCamera = async () => {
+    const nextFacing = facing === "environment" ? "front" : "environment";
+    setFacing(nextFacing);
+
+    if (localStreamRef.current) {
+      const videoTrack = localStreamRef.current.getVideoTracks()[0];
+      if (videoTrack && typeof (videoTrack as any)._switchCamera === "function") {
+        (videoTrack as any)._switchCamera();
+        return;
+      }
+      try {
+        const newStream = await mediaDevices.getUserMedia({
+          video: {
+            facingMode: nextFacing,
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
+            frameRate: { ideal: 30 },
+          },
+          audio: false,
+        });
+        const newTrack = newStream.getVideoTracks()[0];
+        if (newTrack && peerConnectionRef.current) {
+          const senders = peerConnectionRef.current.getSenders();
+          const videoSender = senders.find((s: any) => s.track?.kind === "video");
+          if (videoSender) {
+            await videoSender.replaceTrack(newTrack);
+          }
+        }
+        if (videoTrack) videoTrack.stop();
+        localStreamRef.current = newStream;
+        setLocalStream(newStream);
+      } catch (err: any) {
+        console.error("[LiveSwitcher] Error switching camera lens:", err);
+        showFeedback("Failed to switch camera lens", false);
+      }
     }
   };
 
@@ -370,140 +440,102 @@ export default function LiveSwitcherScreen() {
       <ScrollView className="flex-1" contentContainerStyle={{ padding: 16, gap: 16 }} showsVerticalScrollIndicator={false}>
 
         {/* ── Native Camera Source Card ────────────────────────────────────── */}
-        <View className={`border rounded-[12px] p-4 ${
-          isThisDeviceProgram
-            ? "bg-red-500/10 border-red-500/40"
-            : isCameraActive
-              ? "bg-emerald-500/10 border-emerald-500/30"
-              : "bg-white/[0.04] border-white/10"
+        <View className={`p-4 rounded-[12px] border ${
+          isCameraSource
+            ? isThisDeviceProgram
+              ? "bg-red-600/10 border-red-500/40"
+              : "bg-emerald-500/10 border-emerald-500/30"
+            : "bg-white/[0.04] border-white/10"
         }`}>
           <View className="flex-row items-center justify-between mb-3">
             <View>
-              <Text className="text-[10px] font-bold uppercase tracking-widest text-white/40">Camera Stream</Text>
+              <Text className="text-[10px] font-bold uppercase tracking-widest text-white/40">WebRTC Camera Studio</Text>
               <Text className="text-white font-black text-base mt-0.5">
-                {isCameraActive ? `Slot ${cameraSlotIndex || 1} of 6` : "Camera Standby"}
+                {isCameraSource ? `Slot ${cameraSlotIndex || 1} of 6` : "Camera Standby"}
               </Text>
             </View>
-            {isCameraActive && (
+            {isCameraSource && (
               <View className={`flex-row items-center gap-1.5 px-3 py-1 rounded-full border ${
                 isThisDeviceProgram
                   ? "bg-red-500/30 border-red-400/60"
                   : "bg-emerald-500/20 border-emerald-500/30"
               }`}>
-                <View className={`w-2 h-2 rounded-full ${isThisDeviceProgram ? "bg-red-400" : "bg-emerald-400"}`} />
+                <View className={`w-2 h-2 rounded-full ${isThisDeviceProgram ? "bg-red-400 animate-ping" : "bg-emerald-400"}`} />
                 <Text className={`text-[10px] font-black ${isThisDeviceProgram ? "text-red-300" : "text-emerald-300"}`}>
-                  {isThisDeviceProgram ? "LIVE ON PROGRAM" : "STANDBY • STREAMING"}
+                  {isThisDeviceProgram ? "● LIVE ON PROGRAM" : "STANDBY • STREAMING"}
                 </Text>
               </View>
             )}
           </View>
 
-          {/* Embedded viewfinder preview when camera is active */}
-          {isCameraActive && permission?.granted ? (
-            <View className="mb-4">
-              <View className={`w-full h-44 rounded-[12px] overflow-hidden relative border ${
-                isThisDeviceProgram ? "border-red-500" : "border-emerald-500/50"
-              }`}>
-                {!showViewfinderModal ? (
-                  <CameraView
-                    ref={cameraRef}
-                    style={StyleSheet.absoluteFill}
-                    facing={facing}
-                    animateShutter={false}
-                    pictureSize={pictureSize}
-                    enableTorch={facing === 'back' && torch}
-                    zoom={zoom}
-                    onCameraReady={handleCameraReady}
-                  />
-                ) : (
-                  <View style={StyleSheet.absoluteFill} className="bg-black/90 items-center justify-center">
-                    <Text className="text-white/60 text-xs font-semibold">Fullscreen Viewfinder Active</Text>
-                  </View>
-                )}
-                {/* Floating overlay indicators on preview */}
-                <View className="absolute top-2 left-2 right-2 flex-row items-center justify-between pointer-events-none">
-                  <View className={`px-2 py-0.5 rounded-full border ${
-                    isThisDeviceProgram ? "bg-red-600/90 border-red-400" : "bg-black/70 border-white/20"
-                  }`}>
-                    <Text className="text-[9px] font-black text-white">
-                      {isThisDeviceProgram ? "● ON AIR" : `CAM ${cameraSlotIndex || 1}`}
-                    </Text>
-                  </View>
-                  <View className="bg-black/70 px-2 py-0.5 rounded-full border border-white/20">
-                    <Text className="text-[9px] font-mono font-bold text-emerald-400">{sentFps} FPS</Text>
-                  </View>
-                </View>
+          <Text className="text-white/40 text-xs leading-relaxed mb-4">
+            {isCameraSource
+              ? "Streaming continuous 30–60 FPS hardware-accelerated WebRTC video into the Live Switcher."
+              : "Stream your mobile camera continuously via WebRTC with zero snapshot polling or shutter locks."}
+          </Text>
 
-                {/* Quick actions bar over preview */}
-                <View className="absolute bottom-2 right-2 flex-row gap-1.5">
-                  {facing === 'back' && (
-                    <TouchableOpacity
-                      onPress={() => setTorch((t) => !t)}
-                      className={`p-2 rounded-[12px] border ${torch ? "bg-amber-500/80 border-amber-400" : "bg-black/60 border-white/20"}`}
-                    >
-                      <Lightbulb size={13} color="white" weight={torch ? "fill" : "regular"} />
-                    </TouchableOpacity>
-                  )}
-                  <TouchableOpacity
-                    onPress={() => setIsMirrored((m) => !m)}
-                    className={`px-2 py-1.5 rounded-[12px] border ${
-                      isMirrored ? "bg-purple-600/80 border-purple-400" : "bg-black/60 border-white/20"
-                    }`}
-                  >
-                    <Text className="text-[10px] font-bold text-white">
-                      {isMirrored ? "Mirror ON" : "Mirror"}
+          {/* Action buttons / Viewfinder */}
+          {isCameraSource ? (
+            <View>
+              {localStream ? (
+                <View className="mb-3 overflow-hidden rounded-[12px] border border-white/20 bg-black aspect-video relative">
+                  <RTCView
+                    streamURL={localStream.toURL()}
+                    style={{ width: "100%", height: "100%" }}
+                    objectFit="cover"
+                    mirror={facing === "front"}
+                  />
+                  <View className="absolute top-2 left-2 flex-row items-center gap-1.5 px-2.5 py-1 rounded-[12px] bg-black/60 border border-white/10">
+                    <View className={`w-2 h-2 rounded-full ${isThisDeviceProgram ? "bg-red-500 animate-ping" : "bg-emerald-500"}`} />
+                    <Text className="text-white text-[10px] font-bold">
+                      {isThisDeviceProgram ? "PROGRAM (ON AIR)" : `CAM ${cameraSlotIndex || 1} • STREAMING`}
                     </Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    onPress={() => setFacing((f) => (f === 'front' ? 'back' : 'front'))}
-                    className="p-2 rounded-[12px] bg-black/60 border border-white/20"
-                  >
-                    <ArrowCounterClockwise size={13} color="white" />
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    onPress={() => setShowViewfinderModal(true)}
-                    className="p-2 rounded-[12px] bg-black/60 border border-white/20"
-                  >
-                    <ArrowsOut size={13} color="white" />
-                  </TouchableOpacity>
+                  </View>
                 </View>
+              ) : (
+                <View className="mb-3 p-4 rounded-[12px] bg-white/[0.04] border border-white/10 items-center justify-center">
+                  <Text className="text-white/60 text-xs font-semibold">
+                    {isConnecting ? "Initializing native camera..." : "Camera active (Slot " + (cameraSlotIndex || 1) + ")"}
+                  </Text>
+                </View>
+              )}
+
+              <View className="flex-row gap-2">
+                <TouchableOpacity
+                  onPress={handleFlipCamera}
+                  className="flex-1 flex-row items-center justify-center gap-2 bg-white/10 border border-white/15 py-3 rounded-[12px] active:scale-95"
+                >
+                  <ArrowCounterClockwise size={16} color="white" />
+                  <Text className="text-white font-bold text-xs">
+                    Flip ({facing === "environment" ? "Back" : "Front"})
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  onPress={handleStopNativeCamera}
+                  className="px-5 flex-row items-center justify-center gap-1.5 bg-red-600/20 border border-red-500/30 py-3 rounded-[12px] active:scale-95"
+                >
+                  <Stop size={15} color="#fca5a5" weight="fill" />
+                  <Text className="text-red-300 font-semibold text-xs">Stop Stream</Text>
+                </TouchableOpacity>
               </View>
             </View>
           ) : (
-            <Text className="text-white/40 text-xs leading-relaxed mb-4">
-              Stream your mobile camera directly into the Switcher with zero external browser tabs or network restrictions.
-            </Text>
-          )}
-
-          {/* Action buttons */}
-          <View className="flex-row gap-2">
-            {!isCameraActive ? (
+            <View className="flex-row gap-2">
               <TouchableOpacity
-                onPress={handleStartCamera}
-                className="flex-1 flex-row items-center justify-center gap-2 bg-red-600 border border-red-400/40 py-3.5 rounded-[12px] active:scale-95"
+                onPress={handleStartNativeCamera}
+                disabled={isConnecting}
+                className={`flex-1 flex-row items-center justify-center gap-2 ${
+                  isConnecting ? "bg-emerald-800 opacity-60" : "bg-emerald-600 active:scale-95"
+                } border border-emerald-400/40 py-3.5 rounded-[12px]`}
               >
                 <VideoCamera size={16} color="white" weight="fill" />
-                <Text className="text-white font-bold text-sm">Start Live Camera</Text>
+                <Text className="text-white font-bold text-sm">
+                  {isConnecting ? "Negotiating Stream..." : "Join as Camera (Native WebRTC)"}
+                </Text>
               </TouchableOpacity>
-            ) : (
-              <>
-                <TouchableOpacity
-                  onPress={() => setShowViewfinderModal(true)}
-                  className="flex-1 flex-row items-center justify-center gap-2 bg-purple-600/90 border border-purple-400/30 py-3 rounded-[12px] active:scale-95"
-                >
-                  <Camera size={16} color="white" weight="bold" />
-                  <Text className="text-white font-bold text-xs">Fullscreen Studio</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  onPress={handleStopCamera}
-                  className="px-4 flex-row items-center justify-center gap-1.5 bg-white/10 border border-white/15 py-3 rounded-[12px] active:scale-95"
-                >
-                  <Stop size={15} color="rgba(255,255,255,0.7)" weight="fill" />
-                  <Text className="text-white/70 font-semibold text-xs">Stop</Text>
-                </TouchableOpacity>
-              </>
-            )}
-          </View>
+            </View>
+          )}
         </View>
 
         {/* ── Controller section ─────────────────────────────────────────────── */}
@@ -628,69 +660,94 @@ export default function LiveSwitcherScreen() {
               </TouchableOpacity>
             </View>
 
-            {/* Camera grid (controller mode) */}
-            <View>
-              <Text className="text-[10px] font-bold uppercase tracking-widest text-white/40 mb-2">Camera Sources ({switcherCameraSlots.length}/6)</Text>
-              <View className="flex-row flex-wrap gap-2">
-                {switcherCameraSlots.map((slot) => {
-                  const isTargetOfTransition = switcherActiveTransition?.toId === slot.socketId;
-                  const isProgram = isTargetOfTransition || slot.socketId === effectiveProgramSourceId;
-                  const isDisp1 = switcherDisplay1Source === slot.socketId;
-                  const isDisp2 = switcherDisplay2Source === slot.socketId;
-                  return (
-                    <View
-                      key={slot.socketId}
-                      className={`flex-1 min-w-[45%] py-3 px-3 rounded-[12px] border ${
-                        isProgram
-                          ? "bg-red-600/20 border-red-500/50"
-                          : "bg-white/[0.04] border-white/10"
-                      }`}
-                    >
-                      <View className="flex-row items-center justify-between mb-1">
-                        <View className="flex-row items-center gap-1">
-                          <Text className="text-[8px] font-bold text-white/40 uppercase">CAM {slot.slotIndex}</Text>
-                          {isDisp1 && <Text className="text-[8px] font-black text-sky-400 bg-sky-500/20 px-1 rounded-[12px]">D1</Text>}
-                          {isDisp2 && <Text className="text-[8px] font-black text-violet-400 bg-violet-500/20 px-1 rounded-[12px]">D2</Text>}
-                        </View>
-                        {isProgram && (
-                          <View className="flex-row items-center gap-1">
-                            <View className="w-1.5 h-1.5 rounded-full bg-red-400" />
-                            <Text className="text-[8px] font-black text-red-400">LIVE</Text>
-                          </View>
-                        )}
-                      </View>
-                      <Text className="text-sm font-bold text-white" numberOfLines={1}>{slot.name}</Text>
+            {/* Camera grid (controller mode) - DEF-07: Filter out viewing device's own camera */}
+            {(() => {
+              const visibleCameraSlots = switcherCameraSlots.filter((slot) => slot.socketId !== socket?.id);
+              return (
+                <View>
+                  <Text className="text-[10px] font-bold uppercase tracking-widest text-white/40 mb-2">
+                    Camera Sources ({visibleCameraSlots.length}/6)
+                  </Text>
+                  <View className="flex-row flex-wrap gap-2">
+                    {visibleCameraSlots.map((slot) => {
+                      const isProgram = slot.socketId === effectiveProgramSourceId;
+                      const isDisp1 = switcherDisplay1Source === slot.socketId;
+                      const isDisp2 = switcherDisplay2Source === slot.socketId;
 
-                      {/* Quick assignment buttons */}
-                      <View className="flex-row items-center justify-between mt-2 pt-2 border-t border-white/10">
-                        <Text className="text-[8px] text-white/30">Set as:</Text>
-                        <View className="flex-row gap-1">
-                          <TouchableOpacity
-                            onPress={() => handleSetDisplaySource("display1", slot.socketId)}
-                            className="px-2 py-0.5 rounded-[12px] bg-sky-500/20 border border-sky-500/30 active:bg-sky-500/40"
-                          >
-                            <Text className="text-sky-300 text-[8px] font-black">1</Text>
-                          </TouchableOpacity>
-                          <TouchableOpacity
-                            onPress={() => handleSetDisplaySource("display2", slot.socketId)}
-                            className="px-2 py-0.5 rounded-[12px] bg-violet-500/20 border border-violet-500/30 active:bg-violet-500/40"
-                          >
-                            <Text className="text-violet-300 text-[8px] font-black">2</Text>
-                          </TouchableOpacity>
+                      return (
+                        <View
+                          key={slot.socketId}
+                          className={`flex-1 min-w-[45%] p-3 rounded-[12px] border ${
+                            isProgram
+                              ? "bg-red-500/10 border-red-500/40"
+                              : "bg-white/[0.04] border-white/10"
+                          }`}
+                        >
+                          <View className="flex-row items-center justify-between mb-2">
+                            <View className="flex-row items-center gap-1.5">
+                              <View
+                                className={`w-2 h-2 rounded-full ${
+                                  isProgram ? "bg-red-500" : "bg-emerald-500"
+                                }`}
+                              />
+                              <Text className="text-white font-bold text-xs">
+                                {slot.name || `Cam ${slot.slotIndex}`}
+                              </Text>
+                            </View>
+                            <View className="flex-row items-center gap-1">
+                              {isDisp1 && (
+                                <View className="px-1.5 py-0.5 rounded-[12px] bg-sky-500/30 border border-sky-500/40">
+                                  <Text className="text-sky-300 text-[8px] font-black">DISP 1</Text>
+                                </View>
+                              )}
+                              {isDisp2 && (
+                                <View className="px-1.5 py-0.5 rounded-[12px] bg-violet-500/30 border border-violet-500/40">
+                                  <Text className="text-violet-300 text-[8px] font-black">DISP 2</Text>
+                                </View>
+                              )}
+                            </View>
+                          </View>
+
+                          <View className="flex-row gap-1.5 mt-1">
+                            <TouchableOpacity
+                              onPress={() => handleSetProgram(slot.socketId)}
+                              className={`flex-1 py-1 rounded-[12px] items-center justify-center ${
+                                isProgram
+                                  ? "bg-red-600"
+                                  : "bg-white/10 active:bg-white/20"
+                              }`}
+                            >
+                              <Text className="text-white text-[9px] font-black">
+                                {isProgram ? "PROGRAM" : "CUT TO"}
+                              </Text>
+                            </TouchableOpacity>
+
+                            <TouchableOpacity
+                              onPress={() => handleSetDisplaySource("display1", slot.socketId)}
+                              className="px-2 py-0.5 rounded-[12px] bg-sky-500/20 border border-sky-500/30 active:bg-sky-500/40"
+                            >
+                              <Text className="text-sky-300 text-[8px] font-black">1</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                              onPress={() => handleSetDisplaySource("display2", slot.socketId)}
+                              className="px-2 py-0.5 rounded-[12px] bg-violet-500/20 border border-violet-500/30 active:bg-violet-500/40"
+                            >
+                              <Text className="text-violet-300 text-[8px] font-black">2</Text>
+                            </TouchableOpacity>
+                          </View>
                         </View>
+                      );
+                    })}
+                    {visibleCameraSlots.length === 0 && (
+                      <View className="flex-1 py-6 items-center">
+                        <VideoCamera size={28} color="rgba(255,255,255,0.2)" />
+                        <Text className="text-white/30 text-sm mt-2">No other cameras connected</Text>
                       </View>
-                    </View>
-                  );
-                })}
-                {switcherCameraSlots.length === 0 && (
-                  <View className="flex-1 py-6 items-center">
-                    <VideoCamera size={28} color="rgba(255,255,255,0.2)" />
-                    <Text className="text-white/30 text-sm mt-2">No cameras connected yet</Text>
-                    <Text className="text-white/20 text-xs mt-1">Tap "Start Live Camera" to connect this phone</Text>
+                    )}
                   </View>
-                )}
-              </View>
-            </View>
+                </View>
+              );
+            })()}
 
             {/* Sanctuary & Stage Screens */}
             <View>
@@ -943,145 +1000,10 @@ export default function LiveSwitcherScreen() {
         <View className="flex-row items-center justify-center gap-2 mt-1 mb-4">
           <Broadcast size={12} color="rgba(255,255,255,0.2)" />
           <Text className="text-white/25 text-[10px]">
-            {switcherCameraSlots.length} camera{switcherCameraSlots.length !== 1 ? "s" : ""} connected · Native Studio Streaming
+            {switcherCameraSlots.length} camera{switcherCameraSlots.length !== 1 ? "s" : ""} connected · WebRTC Studio Streaming
           </Text>
         </View>
       </ScrollView>
-
-      {/* ── Fullscreen Studio Camera Viewfinder Modal ──────────────────────── */}
-      <Modal
-        visible={showViewfinderModal && isCameraActive}
-        animationType="slide"
-        presentationStyle="fullScreen"
-        onRequestClose={() => setShowViewfinderModal(false)}
-      >
-        <View style={styles.fullscreenContainer}>
-          {permission?.granted && showViewfinderModal ? (
-            <CameraView
-              ref={cameraRef}
-              style={StyleSheet.absoluteFill}
-              facing={facing}
-              animateShutter={false}
-              pictureSize={pictureSize}
-              enableTorch={facing === 'back' && torch}
-              zoom={zoom}
-              onCameraReady={handleCameraReady}
-            />
-          ) : (
-            <View style={styles.permissionFallback}>
-              <Text style={styles.permissionText}>Camera permission needed</Text>
-              <TouchableOpacity onPress={requestPermission} style={styles.grantButton}>
-                <Text style={styles.grantButtonText}>Grant Permission</Text>
-              </TouchableOpacity>
-            </View>
-          )}
-
-          {/* Studio Tally Border: 12px border radius mandate */}
-          <View
-            style={[
-              styles.tallyBorder,
-              isThisDeviceProgram ? styles.tallyBorderProgram : styles.tallyBorderStandby,
-            ]}
-          />
-
-          {/* Top Studio HUD */}
-          <View style={styles.topHud}>
-            <View style={styles.tallyBadge}>
-              <View
-                style={[
-                  styles.tallyDot,
-                  isThisDeviceProgram ? styles.tallyDotProgram : styles.tallyDotStandby,
-                ]}
-              />
-              <Text style={styles.tallyBadgeText}>
-                {isThisDeviceProgram ? "● LIVE ON PROGRAM" : `STANDBY • CAM ${cameraSlotIndex || 1}`}
-              </Text>
-              <Text style={styles.fpsValue}>{sentFps} FPS</Text>
-            </View>
-
-            <View style={styles.topActions}>
-              {facing === 'back' && (
-                <TouchableOpacity
-                  onPress={() => setTorch((t) => !t)}
-                  style={[styles.hudBtn, torch && styles.hudBtnActive]}
-                  activeOpacity={0.8}
-                >
-                  <Lightbulb size={16} color="white" weight={torch ? "fill" : "regular"} />
-                </TouchableOpacity>
-              )}
-
-              <TouchableOpacity
-                onPress={() => setIsMirrored((m) => !m)}
-                style={[styles.hudBtn, isMirrored && styles.hudBtnActive]}
-                activeOpacity={0.8}
-              >
-                <Text style={styles.hudBtnText}>{isMirrored ? "Mirrored" : "Mirror"}</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                onPress={() => setFacing((f) => (f === 'front' ? 'back' : 'front'))}
-                style={styles.hudBtn}
-                activeOpacity={0.8}
-              >
-                <ArrowCounterClockwise size={16} color="white" />
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                onPress={() => setShowViewfinderModal(false)}
-                style={styles.hudBtn}
-                activeOpacity={0.8}
-              >
-                <Text style={styles.hudBtnText}>Dock</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-
-          {/* Bottom Controls Deck */}
-          <View style={styles.bottomHud}>
-            {/* Stream Quality Selector */}
-            <View style={styles.pillRow}>
-              {(['fast', 'hd', 'eco'] as const).map((q) => (
-                <TouchableOpacity
-                  key={q}
-                  onPress={() => setStreamQuality(q)}
-                  style={[styles.qualityPill, streamQuality === q && styles.qualityPillActive]}
-                  activeOpacity={0.8}
-                >
-                  <Text style={[styles.qualityPillText, streamQuality === q && styles.qualityPillTextActive]}>
-                    {q === 'fast' ? '⚡ FAST (22 FPS)' : q === 'hd' ? '🌟 HD (15 FPS)' : '🌱 ECO (10 FPS)'}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-
-            {/* Zoom Controls */}
-            <View style={styles.zoomRow}>
-              {[0, 0.05, 0.1].map((z, idx) => (
-                <TouchableOpacity
-                  key={idx}
-                  onPress={() => setZoom(z)}
-                  style={[styles.zoomBtn, zoom === z && styles.zoomBtnActive]}
-                  activeOpacity={0.8}
-                >
-                  <Text style={[styles.zoomBtnText, zoom === z && styles.zoomBtnTextActive]}>
-                    {idx === 0 ? '1x' : idx === 1 ? '1.5x' : '2x'}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-
-            {/* Stop Camera Button */}
-            <TouchableOpacity
-              onPress={handleStopCamera}
-              style={styles.stopStreamButton}
-              activeOpacity={0.8}
-            >
-              <Stop size={16} color="white" weight="fill" />
-              <Text style={styles.stopStreamButtonText}>Stop Camera Stream</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
     </SafeAreaView>
   );
 }
