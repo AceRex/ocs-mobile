@@ -87,6 +87,7 @@ export default function LiveSwitcherScreen() {
   const [isCameraActive, setIsCameraActive] = useState<boolean>(false);
   const [showViewfinderModal, setShowViewfinderModal] = useState<boolean>(false);
   const [facing, setFacing] = useState<'front' | 'back'>('back');
+  const [isMirrored, setIsMirrored] = useState<boolean>(false);
   const [torch, setTorch] = useState<boolean>(false);
   const [zoom, setZoom] = useState<number>(0);
   const [streamQuality, setStreamQuality] = useState<'fast' | 'hd' | 'eco'>('fast');
@@ -95,6 +96,11 @@ export default function LiveSwitcherScreen() {
 
   const cameraRef = useRef<any>(null);
   const fpsTrackerRef = useRef({ count: 0, lastCheck: Date.now() });
+
+  // Default front-facing camera to mirrored, rear to normal
+  useEffect(() => {
+    setIsMirrored(facing === 'front');
+  }, [facing]);
 
   // Keep isCameraActive synced with server camera-slot status
   useEffect(() => {
@@ -165,7 +171,7 @@ export default function LiveSwitcherScreen() {
             shutterSound: false,
           });
           if (photo?.base64 && isMounted) {
-            sendSwitcherCameraFrame(photo.base64);
+            sendSwitcherCameraFrame(photo.base64, isMirrored);
             fpsTrackerRef.current.count++;
           }
         } catch (err) {
@@ -438,6 +444,16 @@ export default function LiveSwitcherScreen() {
                       <Lightbulb size={13} color="white" weight={torch ? "fill" : "regular"} />
                     </TouchableOpacity>
                   )}
+                  <TouchableOpacity
+                    onPress={() => setIsMirrored((m) => !m)}
+                    className={`px-2 py-1.5 rounded-[12px] border ${
+                      isMirrored ? "bg-purple-600/80 border-purple-400" : "bg-black/60 border-white/20"
+                    }`}
+                  >
+                    <Text className="text-[10px] font-bold text-white">
+                      {isMirrored ? "Mirror ON" : "Mirror"}
+                    </Text>
+                  </TouchableOpacity>
                   <TouchableOpacity
                     onPress={() => setFacing((f) => (f === 'front' ? 'back' : 'front'))}
                     className="p-2 rounded-[12px] bg-black/60 border border-white/20"
@@ -993,6 +1009,14 @@ export default function LiveSwitcherScreen() {
                   <Lightbulb size={16} color="white" weight={torch ? "fill" : "regular"} />
                 </TouchableOpacity>
               )}
+
+              <TouchableOpacity
+                onPress={() => setIsMirrored((m) => !m)}
+                style={[styles.hudBtn, isMirrored && styles.hudBtnActive]}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.hudBtnText}>{isMirrored ? "Mirrored" : "Mirror"}</Text>
+              </TouchableOpacity>
 
               <TouchableOpacity
                 onPress={() => setFacing((f) => (f === 'front' ? 'back' : 'front'))}

@@ -74,7 +74,7 @@ interface SocketState {
     setSwitcherTransitionSetting: (setting: { type?: string; duration?: number; direction?: string }) => Promise<{ ok: boolean; error?: string }>;
     requestControlReclaim: () => void;
     sendProgramFrame: (base64Data: string) => void;
-    sendSwitcherCameraFrame: (base64Data: string) => void;
+    sendSwitcherCameraFrame: (base64Data: string, isMirrored?: boolean) => void;
 
     setDeviceName: (name: string) => void;
     connect: (ip: string, pairingCode?: string, customPort?: number) => void;
@@ -97,7 +97,7 @@ interface SocketState {
     overlayContent: any | null;
     overlayTimer: any | null;
     shareContentToDesktop: (title: string, content: string) => Promise<{ ok: boolean; error?: string }>;
-    sendCameraFrame: (base64Data: string) => void;
+    sendCameraFrame: (base64Data: string, isMirrored?: boolean) => void;
     startCameraSync: () => void;
     stopCameraSync: () => void;
     acceptCameraRequest: () => void;
@@ -290,10 +290,10 @@ export const useSocketStore = create<SocketState>((set, get) => ({
             socket.emit('switcher:program-frame', { data: base64Data, timestamp: Date.now() });
         }
     },
-    sendSwitcherCameraFrame: (base64Data: string) => {
+    sendSwitcherCameraFrame: (base64Data: string, isMirrored?: boolean) => {
         const { socket, isPaired } = get();
         if (socket && socket.connected && isPaired && base64Data) {
-            socket.emit('switcher:camera-frame', { data: base64Data, timestamp: Date.now() });
+            socket.emit('switcher:camera-frame', { data: base64Data, timestamp: Date.now(), isMirrored: !!isMirrored });
         }
     },
 
@@ -310,10 +310,10 @@ export const useSocketStore = create<SocketState>((set, get) => ({
             });
         });
     },
-    sendCameraFrame: (base64Data: string) => {
+    sendCameraFrame: (base64Data: string, isMirrored?: boolean) => {
         const { socket, isPaired } = get();
         if (socket && socket.connected && isPaired && base64Data) {
-            socket.emit('teleprompter:camera-frame', { data: base64Data, timestamp: Date.now() });
+            socket.emit('teleprompter:camera-frame', { data: base64Data, timestamp: Date.now(), isMirrored: !!isMirrored });
         }
     },
     startCameraSync: () => {
