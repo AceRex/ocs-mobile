@@ -140,18 +140,16 @@ export default function PresentationScreen() {
           isCapturing = true;
           lastTime = now;
           try {
-            const photo = await cameraRef.current.takePictureAsync({
+            const photo = await cameraRef.current?.takePictureAsync({
               quality: 0.28,
               base64: true,
-              skipProcessing: true,
               shutterSound: false,
-              fastMode: true,
-              maxDownsampling: 2,
             });
             if (photo?.base64 && isMounted) {
               sendCameraFrame(photo.base64);
             }
-          } catch (_) {
+          } catch (err) {
+            console.warn('[Presentation Camera] Frame capture error:', err);
           } finally {
             isCapturing = false;
           }

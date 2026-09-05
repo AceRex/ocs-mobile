@@ -159,20 +159,17 @@ export default function LiveSwitcherScreen() {
         lastCaptureTime = now;
         try {
           const qualityVal = streamQuality === 'hd' ? 0.35 : streamQuality === 'eco' ? 0.18 : 0.25;
-          const photo = await cameraRef.current.takePictureAsync({
+          const photo = await cameraRef.current?.takePictureAsync({
             quality: qualityVal,
             base64: true,
-            skipProcessing: true,
             shutterSound: false,
-            fastMode: true,
-            maxDownsampling: 2,
           });
           if (photo?.base64 && isMounted) {
             sendSwitcherCameraFrame(photo.base64);
             fpsTrackerRef.current.count++;
           }
-        } catch (_) {
-          // Drop frame silently if camera HAL is busy
+        } catch (err) {
+          console.warn('[Switcher Camera] Frame capture error:', err);
         } finally {
           isCapturing = false;
         }
@@ -401,16 +398,22 @@ export default function LiveSwitcherScreen() {
               <View className={`w-full h-44 rounded-[12px] overflow-hidden relative border ${
                 isThisDeviceProgram ? "border-red-500" : "border-emerald-500/50"
               }`}>
-                <CameraView
-                  ref={cameraRef}
-                  style={StyleSheet.absoluteFill}
-                  facing={facing}
-                  animateShutter={false}
-                  pictureSize={pictureSize}
-                  enableTorch={facing === 'back' && torch}
-                  zoom={zoom}
-                  onCameraReady={handleCameraReady}
-                />
+                {!showViewfinderModal ? (
+                  <CameraView
+                    ref={cameraRef}
+                    style={StyleSheet.absoluteFill}
+                    facing={facing}
+                    animateShutter={false}
+                    pictureSize={pictureSize}
+                    enableTorch={facing === 'back' && torch}
+                    zoom={zoom}
+                    onCameraReady={handleCameraReady}
+                  />
+                ) : (
+                  <View style={StyleSheet.absoluteFill} className="bg-black/90 items-center justify-center">
+                    <Text className="text-white/60 text-xs font-semibold">Fullscreen Viewfinder Active</Text>
+                  </View>
+                )}
                 {/* Floating overlay indicators on preview */}
                 <View className="absolute top-2 left-2 right-2 flex-row items-center justify-between pointer-events-none">
                   <View className={`px-2 py-0.5 rounded-full border ${
@@ -937,7 +940,7 @@ export default function LiveSwitcherScreen() {
         onRequestClose={() => setShowViewfinderModal(false)}
       >
         <View style={styles.fullscreenContainer}>
-          {permission?.granted ? (
+          {permission?.granted && showViewfinderModal ? (
             <CameraView
               ref={cameraRef}
               style={StyleSheet.absoluteFill}

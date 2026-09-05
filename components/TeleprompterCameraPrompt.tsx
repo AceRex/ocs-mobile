@@ -75,20 +75,17 @@ export default function TeleprompterCameraPrompt() {
                 lastCaptureTime = now;
                 try {
                     const qualityVal = streamQuality === 'hd' ? 0.38 : streamQuality === 'eco' ? 0.18 : 0.26;
-                    const photo = await cameraRef.current.takePictureAsync({
+                    const photo = await cameraRef.current?.takePictureAsync({
                         quality: qualityVal,
                         base64: true,
-                        skipProcessing: true,
                         shutterSound: false,
-                        fastMode: true,
-                        maxDownsampling: 2,
                     });
                     if (photo?.base64 && isMounted) {
                         sendCameraFrame(photo.base64);
                         fpsTrackerRef.current.count++;
                     }
-                } catch (_) {
-                    // Drop frame silently if camera HAL is busy
+                } catch (err) {
+                    console.warn('[Teleprompter Camera] Frame capture error:', err);
                 } finally {
                     isCapturing = false;
                 }
