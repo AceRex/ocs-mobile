@@ -55,9 +55,10 @@ export default function IntercomScreen() {
     streamMicChunk,
   } = useSocketStore();
 
-  // Role-based access: admin and stageManager can use controller + mic modes
-  const canUseControllerMode = deviceRole === 'admin' || deviceRole === 'stageManager';
-  const canUseMicMode = deviceRole === 'admin' || deviceRole === 'stageManager';
+  // Role-based access: Admin (overseer) and Stage Manager can use controller voice prompt (Bible AI);
+  // Live Mic broadcast is restricted strictly to Stage Manager (Admin is overseer, locked from live mic)
+  const canUseControllerMode = deviceRole === "admin" || deviceRole === "stageManager" || isAdmin;
+  const canUseMicMode = deviceRole === "stageManager";
 
   const [activeMode, setActiveMode] = useState<IntercomMode>("peers");
   const [selectedTargetPeer, setSelectedTargetPeer] = useState<string>("all"); // 'all' or socketId
@@ -633,10 +634,10 @@ export default function IntercomScreen() {
 
         <TouchableOpacity
           onPress={() => {
-            if (!isAdmin) {
+            if (!canUseControllerMode) {
               Alert.alert(
-                "Admin Access Required",
-                "Controller Voice Prompts are strictly reserved for Admin devices. Please ask the desktop operator to assign Admin privileges in the Remote panel.",
+                "Access Restricted",
+                "Controller Voice Prompts for Scripture & Bible Control require Admin (Overseer) or Stage Manager privileges.",
               );
               return;
             }
@@ -647,7 +648,7 @@ export default function IntercomScreen() {
           style={[
             styles.modeButton,
             activeMode === "controller" && styles.modeButtonActiveBlue,
-            !isAdmin && { opacity: 0.55 },
+            !canUseControllerMode && { opacity: 0.55 },
           ]}
         >
           <Sparkle
@@ -659,10 +660,17 @@ export default function IntercomScreen() {
 
         <TouchableOpacity
           onPress={() => {
-            if (!isAdmin) {
+            if (deviceRole === "admin" || (isAdmin && deviceRole !== "stageManager")) {
               Alert.alert(
-                "Admin Access Required",
-                "Work as Mic (Live Wireless Microphone) is strictly reserved for Admin devices. Please ask the desktop operator to assign Admin privileges in the Remote panel.",
+                "Overseer Mode Restriction",
+                "Admin accounts can use Voice Prompts for Bible Control and scripture presentation, but Live Sanctuary Microphone broadcast is restricted to Stage Managers.",
+              );
+              return;
+            }
+            if (!canUseMicMode) {
+              Alert.alert(
+                "Stage Manager Access Required",
+                "Live Sanctuary Microphone broadcast is strictly reserved for Stage Managers.",
               );
               return;
             }
@@ -673,7 +681,7 @@ export default function IntercomScreen() {
           style={[
             styles.modeButton,
             activeMode === "mic" && styles.modeButtonActiveEmerald,
-            !isAdmin && { opacity: 0.55 },
+            !canUseMicMode && { opacity: 0.55 },
           ]}
         >
           <Broadcast
@@ -833,10 +841,12 @@ export default function IntercomScreen() {
             {/* Mic Toggle Switch */}
             <TouchableOpacity
               onPress={() => {
-                if (!isAdmin) {
+                if (!canUseMicMode) {
                   Alert.alert(
-                    "Admin Access Required",
-                    "Live Wireless Mic is strictly reserved for Admin devices.",
+                    "Stage Manager Access Required",
+                    deviceRole === "admin" || isAdmin
+                      ? "Admin accounts can use Voice Prompts for Bible Control, but Live Sanctuary Mic broadcast is restricted to Stage Managers."
+                      : "Live Wireless Mic is strictly reserved for Stage Managers.",
                   );
                   return;
                 }
@@ -1303,11 +1313,18 @@ const styles = StyleSheet.create({
     borderRadius: 80,
     alignItems: "center",
     justifyContent: "center",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.35,
-    shadowRadius: 12,
-    elevation: 8,
+    ...Platform.select({
+      web: {
+        boxShadow: "0 8px 12px rgba(0, 0, 0, 0.35)",
+      },
+      default: {
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 8 },
+        shadowOpacity: 0.35,
+        shadowRadius: 12,
+        elevation: 8,
+      },
+    }),
   },
   stateLabelWrap: {
     alignItems: "center",

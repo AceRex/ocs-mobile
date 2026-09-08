@@ -170,7 +170,7 @@ export default function LoginScreen() {
                   showSoftInputOnFocus={true}
                   style={styles.textInputWithIcon}
                 />
-                <View style={styles.inputIconLeft} pointerEvents="none">
+                <View style={styles.inputIconLeft}>
                   <EnvelopeSimple
                     size={20}
                     color="rgba(255,255,255,0.4)"
@@ -209,7 +209,7 @@ export default function LoginScreen() {
                   showSoftInputOnFocus={true}
                   style={[styles.textInputWithIcon, { paddingRight: 48 }]}
                 />
-                <View style={styles.inputIconLeft} pointerEvents="none">
+                <View style={styles.inputIconLeft}>
                   <LockSimple
                     size={20}
                     color="rgba(255,255,255,0.4)"
@@ -433,6 +433,7 @@ const styles = StyleSheet.create({
     position: "absolute",
     left: 14,
     zIndex: 2,
+    pointerEvents: "none",
   },
   eyeButtonAbsolute: {
     position: "absolute",
@@ -444,11 +445,18 @@ const styles = StyleSheet.create({
     marginTop: 8,
     borderRadius: 12,
     overflow: "hidden",
-    shadowColor: "#7c3aed",
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.4,
-    shadowRadius: 16,
-    elevation: 8,
+    ...Platform.select({
+      web: {
+        boxShadow: "0 8px 16px rgba(124, 58, 237, 0.4)",
+      },
+      default: {
+        shadowColor: "#7c3aed",
+        shadowOffset: { width: 0, height: 8 },
+        shadowOpacity: 0.4,
+        shadowRadius: 16,
+        elevation: 8,
+      },
+    }),
   },
   submitButton: {
     flexDirection: "row",

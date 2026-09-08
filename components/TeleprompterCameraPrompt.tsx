@@ -18,7 +18,7 @@ export default function TeleprompterCameraPrompt() {
     const [permission, requestPermission] = useCameraPermissions();
     const [facing, setFacing] = useState<'front' | 'back'>('front');
     const [streamQuality, setStreamQuality] = useState<'fast' | 'hd' | 'eco'>('fast');
-    const [pictureSize, setPictureSize] = useState<string | undefined>(undefined);
+    const [pictureSize, setPictureSize] = useState<string>('640x480');
     const [torch, setTorch] = useState<boolean>(false);
     const [zoom, setZoom] = useState<number>(0);
     const [sentFps, setSentFps] = useState<number>(0);
@@ -26,19 +26,31 @@ export default function TeleprompterCameraPrompt() {
     const cameraRef = useRef<any>(null);
     const fpsTrackerRef = useRef({ count: 0, lastCheck: Date.now() });
 
+    // Auto-align picture size to stream quality to prevent sensor bufferbloat
+    useEffect(() => {
+        if (streamQuality === 'fast') {
+            setPictureSize('480x360');
+        } else if (streamQuality === 'hd') {
+            setPictureSize('640x480');
+        } else {
+            setPictureSize('352x288');
+        }
+    }, [streamQuality]);
+
     // Pick optimal low-overhead picture size for streaming on camera ready
     const handleCameraReady = useCallback(async () => {
         try {
             if (cameraRef.current?.getAvailablePictureSizesAsync) {
                 const sizes: string[] = await cameraRef.current.getAvailablePictureSizesAsync();
                 if (sizes && sizes.length > 0) {
-                    // Match fast resolution (480p / 720p / 640x480)
+                    // Match fast resolution (480x360 / 640x480 / 352x288)
                     const preferred =
+                        sizes.find((s) => s === '480x360') ||
                         sizes.find((s) => s === '640x480') ||
+                        sizes.find((s) => s === '352x288') ||
                         sizes.find((s) => s === '800x600') ||
-                        sizes.find((s) => s === '1280x720') ||
                         sizes.find((s) => s === '960x540') ||
-                        sizes[sizes.length - 1];
+                        sizes.find((s) => s === '1280x720');
                     if (preferred) setPictureSize(preferred);
                 }
             }
@@ -67,21 +79,21 @@ export default function TeleprompterCameraPrompt() {
             if (!isMounted || !isCameraStreaming || !permission?.granted) return;
 
             const now = performance.now();
-            // Cadence pacing: fast = ~50ms (20fps), hd = ~70ms (14fps), eco = ~100ms (10fps)
-            const minInterval = streamQuality === 'fast' ? 50 : streamQuality === 'hd' ? 70 : 100;
+            // Cadence pacing: fast = 0ms (hardware max non-blocking), hd = ~35ms (~28fps), eco = ~80ms (~12fps)
+            const minInterval = streamQuality === 'fast' ? 0 : streamQuality === 'hd' ? 35 : 80;
 
             if (!isCapturing && now - lastCaptureTime >= minInterval && cameraRef.current) {
                 isCapturing = true;
                 lastCaptureTime = now;
                 try {
-                    const qualityVal = streamQuality === 'hd' ? 0.38 : streamQuality === 'eco' ? 0.18 : 0.26;
+                    // Optimized JPEG compression with skipProcessing bypasses OS orientation & EXIF processing for max fluidity
+                    const qualityVal = streamQuality === 'hd' ? 0.28 : streamQuality === 'eco' ? 0.10 : 0.16;
                     const photo = await cameraRef.current?.takePictureAsync({
                         quality: qualityVal,
                         base64: true,
-                        shutterSound: false,
                     });
                     if (photo?.base64 && isMounted) {
-                        sendCameraFrame(photo.base64);
+                        sendCameraFrame(photo.base64, facing === 'front');
                         fpsTrackerRef.current.count++;
                     }
                 } catch (err) {
@@ -105,7 +117,7 @@ export default function TeleprompterCameraPrompt() {
             if (animFrameId) cancelAnimationFrame(animFrameId);
             clearInterval(fpsInterval);
         };
-    }, [isCameraStreaming, permission?.granted, streamQuality]);
+    }, [isCameraStreaming, permission?.granted, streamQuality, facing, sendCameraFrame]);
 
     // Stream microphone audio to desktop ASR during teleprompter camera session
     useEffect(() => {

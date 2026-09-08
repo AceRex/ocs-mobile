@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, Platform } from 'react-native';
 import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { LockSimple, ShieldWarning, SignIn, CheckCircle } from 'phosphor-react-native';
@@ -23,7 +23,7 @@ export default function GuestExpiredGate() {
   };
 
   return (
-    <View style={styles.overlay} pointerEvents="auto">
+    <View style={styles.overlay}>
       <SafeAreaView style={styles.container}>
         <LinearGradient
           colors={['#1c0d24', '#0d0a14', '#15091e']}
@@ -115,6 +115,7 @@ const styles = StyleSheet.create({
     bottom: 0,
     zIndex: 99999,
     elevation: 99999,
+    pointerEvents: 'auto',
   },
   container: {
     flex: 1,
@@ -143,11 +144,18 @@ const styles = StyleSheet.create({
   },
   iconContainer: {
     marginBottom: 16,
-    shadowColor: '#e11d48',
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.4,
-    shadowRadius: 20,
-    elevation: 10,
+    ...Platform.select({
+      web: {
+        boxShadow: '0 10px 20px rgba(225, 29, 72, 0.4)',
+      },
+      default: {
+        shadowColor: '#e11d48',
+        shadowOffset: { width: 0, height: 10 },
+        shadowOpacity: 0.4,
+        shadowRadius: 20,
+        elevation: 10,
+      },
+    }),
   },
   iconGradient: {
     width: 72,
@@ -221,13 +229,20 @@ const styles = StyleSheet.create({
   },
   loginButtonWrapper: {
     width: '100%',
-    borderRadius: 16,
+    borderRadius: 12,
     overflow: 'hidden',
-    shadowColor: '#7c3aed',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.4,
-    shadowRadius: 15,
-    elevation: 8,
+    ...Platform.select({
+      web: {
+        boxShadow: '0 8px 15px rgba(124, 58, 237, 0.4)',
+      },
+      default: {
+        shadowColor: '#7c3aed',
+        shadowOffset: { width: 0, height: 8 },
+        shadowOpacity: 0.4,
+        shadowRadius: 15,
+        elevation: 8,
+      },
+    }),
   },
   loginButton: {
     flexDirection: 'row',

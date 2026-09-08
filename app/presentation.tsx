@@ -464,7 +464,7 @@ export default function PresentationScreen() {
       >
         {/* Subtle Reading Guide Line (anchors speaker eye level at 33% screen height) */}
         <View
-          pointerEvents="none"
+          style={{ pointerEvents: "none" }}
           className="absolute left-0 right-0 top-1/3 h-[1px] border-b border-dashed border-violet-500/25 z-10"
         />
 

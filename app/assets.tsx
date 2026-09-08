@@ -654,16 +654,23 @@ export default function AssetsScreen() {
               width: "100%",
               maxWidth: 384,
               backgroundColor: "#1e1e24",
-              borderRadius: 36,
+              borderRadius: 12,
               borderWidth: 1,
               borderColor: "rgba(255, 255, 255, 0.15)",
               padding: 32,
               alignItems: "center",
-              shadowColor: "#000000",
-              shadowOffset: { width: 0, height: 12 },
-              shadowOpacity: 0.5,
-              shadowRadius: 24,
-              elevation: 25,
+              ...Platform.select({
+                web: {
+                  boxShadow: "0 12px 24px rgba(0, 0, 0, 0.5)",
+                },
+                default: {
+                  shadowColor: "#000000",
+                  shadowOffset: { width: 0, height: 12 },
+                  shadowOpacity: 0.5,
+                  shadowRadius: 24,
+                  elevation: 25,
+                },
+              }),
             }}
           >
             {/* Scalloped Starburst Rosette Badge */}

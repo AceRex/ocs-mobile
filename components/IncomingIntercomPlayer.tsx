@@ -433,15 +433,22 @@ const styles = StyleSheet.create({
     backgroundColor: "#161520",
     borderWidth: 1,
     borderColor: "rgba(96, 165, 250, 0.3)",
-    borderRadius: 18,
+    borderRadius: 12,
     padding: 12,
     marginHorizontal: 16,
     marginVertical: 8,
-    shadowColor: "#60a5fa",
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.25,
-    shadowRadius: 12,
-    elevation: 8,
+    ...Platform.select({
+      web: {
+        boxShadow: "0 6px 12px rgba(96, 165, 250, 0.25)",
+      },
+      default: {
+        shadowColor: "#60a5fa",
+        shadowOffset: { width: 0, height: 6 },
+        shadowOpacity: 0.25,
+        shadowRadius: 12,
+        elevation: 8,
+      },
+    }),
   },
   floatingBanner: {
     position: "absolute",
@@ -530,11 +537,18 @@ const styles = StyleSheet.create({
     borderRadius: 17,
     alignItems: "center",
     justifyContent: "center",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
-    elevation: 3,
+    ...Platform.select({
+      web: {
+        boxShadow: "0 2px 4px rgba(0, 0, 0, 0.3)",
+      },
+      default: {
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.3,
+        shadowRadius: 4,
+        elevation: 3,
+      },
+    }),
   },
   playBtn: {
     backgroundColor: "#2563eb",

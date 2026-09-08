@@ -1,9 +1,9 @@
 import React, { useEffect, useState } from "react";
+import { View, Text, StyleSheet, Animated, ActivityIndicator, Platform } from "react-native";
+import { LinearGradient } from "expo-linear-gradient";
 
 // Build identifier — update this whenever building a new APK to confirm version on device
 const BUILD_ID = "Sep03-00:25";
-import { View, Text, StyleSheet, Animated, ActivityIndicator } from "react-native";
-import { LinearGradient } from "expo-linear-gradient";
 
 interface MobileSplashProps {
   onFinish?: () => void;
@@ -89,11 +89,18 @@ const styles = StyleSheet.create({
     borderRadius: 24,
     alignItems: "center",
     justifyContent: "center",
-    shadowColor: "#7C3AED",
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.5,
-    shadowRadius: 16,
-    elevation: 10,
+    ...Platform.select({
+      web: {
+        boxShadow: "0 8px 16px rgba(124, 58, 237, 0.5)",
+      },
+      default: {
+        shadowColor: "#7C3AED",
+        shadowOffset: { width: 0, height: 8 },
+        shadowOpacity: 0.5,
+        shadowRadius: 16,
+        elevation: 10,
+      },
+    }),
     marginBottom: 8,
   },
   logoText: {
