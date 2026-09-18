@@ -533,7 +533,7 @@ export default function LiveSwitcherScreen() {
                 <View style={{ flexDirection: "row", gap: 8 }}>
                   {[
                     { id: "cross" as const, label: "✝ Cross" },
-                    { id: "ocs" as const, label: "OCS Badge" },
+                    { id: "ocs" as const, label: "wave.io" },
                     { id: "dove" as const, label: "🕊 Dove" },
                     { id: "custom" as const, label: "Custom URL" },
                   ].map(({ id, label }) => {
@@ -1472,7 +1472,7 @@ export default function LiveSwitcherScreen() {
             </View>
           ) : bConfig.logo.preset === "ocs" ? (
             <View style={[styles.logoBadge, { width: bConfig.logo.size, height: bConfig.logo.size * 0.75 }]}>
-              <Text style={styles.logoOcsText}>OCS</Text>
+              <Text style={styles.logoOcsText}>wave.io</Text>
               <Text style={styles.logoLiveDot}>● LIVE</Text>
             </View>
           ) : bConfig.logo.preset === "dove" ? (

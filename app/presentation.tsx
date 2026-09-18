@@ -578,7 +578,7 @@ export default function PresentationScreen() {
                 <Text className="text-zinc-400 text-xs text-center leading-relaxed max-w-[280px] mb-6">
                   {isPaired
                     ? "Workstation is connected. Active scriptures, slides, and lyrics will stream to this prompter automatically."
-                    : "Connect to your OCS Workstation on the Connect tab to mirror live stage slides."}
+                    : "Connect to your wave.io Workstation on the Connect tab to mirror live stage slides."}
                 </Text>
                 <Button
                   variant="outline"

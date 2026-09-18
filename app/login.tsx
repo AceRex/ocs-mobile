@@ -125,7 +125,7 @@ export default function LoginScreen() {
           <View style={styles.titleSection}>
             <Text style={styles.mainTitle}>Welcome Back</Text>
             <Text style={styles.subTitle}>
-              Sign in to your OCS account to unlock all mobile companion
+              Sign in to your wave.io account to unlock all mobile companion
               features, remote stage controls, and cloud sync.
             </Text>
           </View>
@@ -249,7 +249,7 @@ export default function LoginScreen() {
                 ) : (
                   <>
                     <SignIn size={18} color="#ffffff" weight="bold" />
-                    <Text style={styles.submitButtonText}>Sign In to OCS</Text>
+                    <Text style={styles.submitButtonText}>Sign In to wave.io</Text>
                   </>
                 )}
               </LinearGradient>
