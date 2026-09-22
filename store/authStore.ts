@@ -178,15 +178,15 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
     const deviceName = Platform.OS === 'ios' ? 'iPhone Companion' : Platform.OS === 'android' ? 'Android Companion' : 'Mobile Companion';
 
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000);
+
     try {
       const response = await fetch(endpoint, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Accept: 'application/json',
-          'x-ocs-platform': 'mobile',
-          'x-ocs-device-id': deviceId,
-          'x-ocs-device-name': deviceName,
         },
         body: JSON.stringify({
           email: email.trim().toLowerCase(),
@@ -195,7 +195,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
           deviceId,
           deviceName,
         }),
+        signal: controller.signal,
       });
+
+      clearTimeout(timeoutId);
 
       const contentType = response.headers.get('content-type') || '';
       let data: any = {};
@@ -204,11 +207,24 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       } else {
         const rawText = await response.text();
         const snippet = rawText.replace(/<[^>]*>/g, '').trim().slice(0, 120);
+        if (response.status >= 500) {
+          throw new Error(`Authentication server unavailable (HTTP ${response.status})`);
+        }
         throw new Error(snippet || `Server returned status ${response.status}`);
       }
 
       if (!response.ok || !data.success) {
-        const message = data.message || data.error || 'Invalid credentials or login failed';
+        if (response.status === 401 || response.status === 403) {
+          const message = data.message || data.error || 'Invalid email or password. Please verify your credentials.';
+          set({ authError: message, isLoading: false });
+          return { success: false, error: message };
+        }
+        if (response.status >= 500) {
+          const message = 'Authentication server is temporarily unavailable. Please try again shortly.';
+          set({ authError: message, isLoading: false });
+          return { success: false, error: message };
+        }
+        const message = data.message || data.error || 'Login failed. Please check your credentials.';
         set({ authError: message, isLoading: false });
         return { success: false, error: message };
       }
@@ -241,7 +257,26 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
       return { success: true };
     } catch (err: any) {
-      const message = err.message || 'Network error connecting to OCS auth server';
+      clearTimeout(timeoutId);
+      let message = err.message || 'Network error connecting to OCS auth server';
+
+      if (err.name === 'AbortError') {
+        message = 'Connection timed out. The server took too long to respond. Please check your network connection.';
+      } else if (
+        message.includes('Failed to fetch') ||
+        message.includes('Network request failed') ||
+        message.includes('NetworkError') ||
+        message.includes('ECONNREFUSED')
+      ) {
+        if (cleanBase.includes('localhost') || cleanBase.includes('127.0.0.1')) {
+          message = Platform.OS === 'android'
+            ? "Cannot reach 'localhost' on Android. Use 'http://10.0.2.2:4000' for emulator or your computer's LAN IP (e.g. http://192.168.x.x:4000)."
+            : "Cannot reach 'localhost' from a mobile device. Use your computer's LAN IP address (e.g. http://192.168.x.x:4000).";
+        } else {
+          message = `Unable to reach authentication server (${cleanBase}). Please check your internet connection or server address.`;
+        }
+      }
+
       set({ authError: message, isLoading: false });
       return { success: false, error: message };
     }

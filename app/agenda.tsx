@@ -442,7 +442,7 @@ export default function MobileAgendaScreen() {
               className="flex-row items-center gap-2 p-2.5 bg-black/20 rounded-[12px] border border-white/5"
             >
               <View
-                className={`w-4 h-4 rounded-[4px] border items-center justify-center ${
+                className={`w-4 h-4 rounded-[12px] border items-center justify-center ${
                   currentSession.recordSession ? "bg-red-600 border-red-500" : "border-white/30"
                 }`}
               >
@@ -456,6 +456,23 @@ export default function MobileAgendaScreen() {
                 Record this session (Playout capture)
               </Text>
             </TouchableOpacity>
+
+            {/* Person Taking This Session */}
+            <View className="bg-black/20 p-2.5 rounded-[12px] border border-white/5">
+              <Text className="text-white/40 text-[9px] uppercase font-bold mb-1">
+                Person / Presenter
+              </Text>
+              <TextInput
+                value={currentSession.person || ""}
+                onChangeText={(val) =>
+                  currentAgenda &&
+                  updateSession(currentAgenda.id, currentSession.id, { person: val })
+                }
+                placeholder="e.g. Pastor John, Choir, Speaker..."
+                placeholderTextColor="rgba(255,255,255,0.25)"
+                className="text-white font-bold text-xs p-0"
+              />
+            </View>
 
             {/* Session Notes */}
             <TextInput
@@ -621,14 +638,15 @@ export default function MobileAgendaScreen() {
 
               return (
                 <View className="space-y-3">
-                  {/* Visual Track (Images & Videos) */}
+                  {/* Single Unified Cue Track */}
                   <View className="bg-white/5 p-3 rounded-[12px] border border-purple-500/20">
                     <View className="flex-row items-center justify-between mb-2">
                       <View className="flex-row items-center gap-1.5">
                         <ImageIcon size={14} color="#C084FC" />
                         <FilmSlate size={14} color="#60A5FA" />
+                        <SpeakerHigh size={14} color="#FBBF24" />
                         <Text className="text-purple-300 font-bold text-xs uppercase">
-                          Visual Track (Images & Videos)
+                          Cue Track (Media & Audio)
                         </Text>
                       </View>
                       <View className="flex-row items-center gap-1.5">
@@ -644,32 +662,31 @@ export default function MobileAgendaScreen() {
                         >
                           <Text className="text-blue-200 text-[10px] font-bold">+ Video</Text>
                         </TouchableOpacity>
+                        <TouchableOpacity
+                          onPress={() => handlePickMedia("audio")}
+                          className="px-2 py-0.5 bg-amber-500/20 rounded-[12px] border border-amber-500/40"
+                        >
+                          <Text className="text-amber-200 text-[10px] font-bold">+ Audio</Text>
+                        </TouchableOpacity>
                       </View>
                     </View>
-                    {(currentSession.timelineItems || [])
-                      .filter((i) => i.track === "visual" || i.track === "background" || i.track === "video" || i.track === "image")
-                      .map((cue) => renderCueItem(cue, "visual"))}
-                  </View>
 
-                  {/* Audio Track */}
-                  <View className="bg-white/5 p-3 rounded-[12px] border border-amber-500/20">
-                    <View className="flex-row items-center justify-between mb-2">
-                      <View className="flex-row items-center gap-1.5">
-                        <SpeakerHigh size={14} color="#FBBF24" />
-                        <Text className="text-amber-300 font-bold text-xs uppercase">
-                          Audio Track
-                        </Text>
-                      </View>
-                      <TouchableOpacity
-                        onPress={() => handlePickMedia("audio")}
-                        className="px-2 py-0.5 bg-amber-500/20 rounded-[12px] border border-amber-500/40"
-                      >
-                        <Text className="text-amber-200 text-[10px] font-bold">+ Audio</Text>
-                      </TouchableOpacity>
+                    {/* Stacked Sub-Lanes */}
+                    {/* Visual Cues */}
+                    <View className="mb-2">
+                      <Text className="text-white/40 text-[9px] uppercase font-bold mb-1">Visual Cues</Text>
+                      {(currentSession.timelineItems || [])
+                        .filter((i) => i.track === "visual" || i.track === "background" || i.track === "video" || i.track === "image" || (i.track === "media" && i.mediaType !== "audio"))
+                        .map((cue) => renderCueItem(cue, "visual"))}
                     </View>
-                    {(currentSession.timelineItems || [])
-                      .filter((i) => i.track === "audio")
-                      .map((cue) => renderCueItem(cue, "audio"))}
+
+                    {/* Audio Cues */}
+                    <View>
+                      <Text className="text-white/40 text-[9px] uppercase font-bold mb-1">Audio Cues</Text>
+                      {(currentSession.timelineItems || [])
+                        .filter((i) => i.track === "audio" || (i.track === "media" && i.mediaType === "audio"))
+                        .map((cue) => renderCueItem(cue, "audio"))}
+                    </View>
                   </View>
                 </View>
               );

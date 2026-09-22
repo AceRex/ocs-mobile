@@ -11,9 +11,10 @@ import { useSocketStore } from './socketStore';
 
 export interface TimelineItem {
   id: string;
-  track: 'visual' | 'audio' | 'background' | 'video';
-  mediaType?: 'image' | 'video' | 'color';
-  presentationMode?: 'background' | 'foreground';
+  track: 'media' | 'visual' | 'audio' | 'background' | 'video';
+  mediaType?: 'image' | 'video' | 'color' | 'audio';
+  presentationMode?: 'background' | 'foreground' | 'audio';
+  laneIndex?: number;
   actionType: 'point' | 'range';
   startSec: number;
   durationSec: number;
@@ -31,6 +32,7 @@ export interface TimelineItem {
 export interface AgendaSession {
   id: string;
   name: string;
+  person?: string;
   durationSec: number;
   notes?: string;
   transitionMode: 'auto' | 'manual';
@@ -300,6 +302,7 @@ export const useAgendaStore = create<AgendaState>((set, get) => ({
         {
           id: `sess_${now}_1`,
           name: 'Session 1',
+          person: '',
           durationSec: 600,
           transitionMode: 'manual',
           intervalSec: 0,
@@ -365,6 +368,7 @@ export const useAgendaStore = create<AgendaState>((set, get) => ({
     const newSession: AgendaSession = {
       id: `sess_${now}_${Math.random().toString(36).slice(2, 6)}`,
       name,
+      person: '',
       durationSec: Math.max(1, durationSec),
       transitionMode: 'manual',
       intervalSec: 0,
