@@ -106,6 +106,7 @@ export default function MobileAgendaScreen() {
     redo,
     sendToDesktop,
     cancelTransfer,
+    resetTransfer,
   } = useAgendaStore();
 
   const { isConnected, isPaired } = useSocketStore();
@@ -1022,7 +1023,7 @@ export default function MobileAgendaScreen() {
               {agendas.map((a) => (
                 <TouchableOpacity
                   key={a.id}
-                  onPress={() => { setActiveAgendaId(a.id); setIsAgendaPickerOpen(false); }}
+                  onPress={() => { setActiveAgendaId(a.id); resetTransfer(); setIsAgendaPickerOpen(false); }}
                   style={[S.agendaRow, a.id === currentAgenda?.id && S.agendaRowActive]}
                 >
                   <View style={{ flex: 1 }}>

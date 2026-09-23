@@ -117,6 +117,7 @@ interface AgendaState {
   // Desktop Transfer
   sendToDesktop: (agendaId: string) => Promise<{ ok: boolean; error?: string }>;
   cancelTransfer: () => void;
+  resetTransfer: () => void;
 }
 
 // ── Pure-JS SHA-256 Hash Helper ─────────────────────────────────────────────
@@ -651,13 +652,40 @@ export const useAgendaStore = create<AgendaState>((set, get) => ({
   // ── Reliable Desktop LAN Transfer ────────────────────────────────────────
 
   sendToDesktop: async (agendaId) => {
+    const corrId = Math.random().toString(36).substring(2, 8);
     const agenda = get().agendas.find((a) => a.id === agendaId);
-    if (!agenda) return { ok: false, error: 'Agenda not found' };
+    if (!agenda) {
+      console.warn(`[AGENDA-SEND ${corrId}] Agenda not found for ID: ${agendaId}`);
+      return { ok: false, error: 'Agenda not found' };
+    }
 
     const socketStore = useSocketStore.getState();
     const socket = socketStore.socket;
+
+    console.log(`[AGENDA-SEND ${corrId}] MOBILE send pressed`);
+    console.log(`[AGENDA-SEND ${corrId}] socket.connected = ${socket?.connected}, socket.id = ${socket?.id}`);
+    console.log(`[AGENDA-SEND ${corrId}] paired state = ${socketStore.isPaired}, isConnected = ${socketStore.isConnected}`);
+    console.log(`[AGENDA-SEND ${corrId}] paired desktop identifier = ${socketStore.lastHost || socketStore.serverIp}, paired desktop IP = ${socketStore.serverIp}`);
+    console.log(`[AGENDA-SEND ${corrId}] Agenda ID = ${agenda.id}, title = "${agenda.name}", sessions = ${agenda.sessions?.length || 0}, cues = ${(agenda.sessions || []).reduce((acc, s) => acc + (s.timelineItems?.length || 0), 0)}`);
+    console.log(`[AGENDA-SEND ${corrId}] transfer.status = "${get().transfer.status}", transfer.error = "${get().transfer.error}"`);
+
     if (!socket || !socketStore.isConnected || !socketStore.isPaired) {
-      return { ok: false, error: 'Mobile is not connected and paired with desktop controller' };
+      const err = !socket
+        ? 'Socket instance is null'
+        : !socketStore.isConnected
+        ? 'Socket is not connected to desktop'
+        : 'Mobile is not paired with desktop';
+      console.warn(`[AGENDA-SEND ${corrId}] PRE-CHECK FAILED: ${err}`);
+      set({
+        transfer: {
+          transferring: false,
+          waitingApproval: false,
+          progress: 0,
+          status: 'Pairing required',
+          error: `Mobile is not connected and paired with desktop controller (${err})`,
+        },
+      });
+      return { ok: false, error: `Mobile is not connected and paired with desktop controller (${err})` };
     }
 
     set({
@@ -671,23 +699,36 @@ export const useAgendaStore = create<AgendaState>((set, get) => ({
     });
 
     try {
-      // Step 1: Handshake offer
-      const offerRes: any = await new Promise((resolve) => {
+      console.log(`[AGENDA-SEND ${corrId}] payload built, emitting mobile-agenda-offer`);
+      // Step 1: Handshake offer with 15-second timeout
+      const offerRes: any = await new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          console.warn(`[AGENDA-SEND ${corrId}] TIMEOUT waiting for desktop offer acknowledgement (15s)`);
+          reject(new Error('Connection timed out waiting for desktop to receive offer'));
+        }, 15000);
+
         socket.emit(
           'mobile-agenda-offer',
           {
             agenda,
             deviceName: socketStore.deviceName || 'Mobile Companion',
+            corrId,
           },
-          resolve
+          (res: any) => {
+            clearTimeout(timeout);
+            console.log(`[AGENDA-SEND ${corrId}] acknowledgement returned from desktop:`, res);
+            resolve(res);
+          }
         );
       });
 
       if (!offerRes?.ok) {
+        console.warn(`[AGENDA-SEND ${corrId}] desktop rejected offer: ${offerRes?.error}`);
         throw new Error(offerRes?.error || 'Failed to submit agenda offer');
       }
 
       const transferId = offerRes.transferId;
+      console.log(`[AGENDA-SEND ${corrId}] desktop accepted offer into pending state, transferId = ${transferId}`);
 
       // Step 2: Operator approval waiting state
       set({
@@ -725,7 +766,7 @@ export const useAgendaStore = create<AgendaState>((set, get) => ({
             waitingApproval: false,
             progress: 0,
             status: 'Agenda declined',
-            error: "Agenda was declined by the desktop operator.",
+            error: null, // Operator decline is NOT a technical failure
             transferId,
           },
         });
@@ -874,6 +915,18 @@ export const useAgendaStore = create<AgendaState>((set, get) => ({
         waitingApproval: false,
         progress: 0,
         status: 'Transfer cancelled',
+        error: null,
+      },
+    });
+  },
+
+  resetTransfer: () => {
+    set({
+      transfer: {
+        transferring: false,
+        waitingApproval: false,
+        progress: 0,
+        status: '',
         error: null,
       },
     });
