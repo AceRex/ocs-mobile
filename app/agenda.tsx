@@ -250,6 +250,12 @@ export default function MobileAgendaScreen() {
       setSendSuccess(true);
       if (sendSuccessTimer.current) clearTimeout(sendSuccessTimer.current);
       sendSuccessTimer.current = setTimeout(() => setSendSuccess(false), 6000);
+    } else if (res.error && !res.error.toLowerCase().includes("declined")) {
+      Alert.alert(
+        "Couldn't send Agenda",
+        `Debug:\n${res.error}`,
+        [{ text: "OK" }]
+      );
     }
   };
 
@@ -374,7 +380,9 @@ export default function MobileAgendaScreen() {
                   {transfer.status || (transfer.error ? "Couldn't send Agenda" : "Transferring...")}
                 </Text>
                 {transfer.error && (
-                  <Text style={{ fontSize: 11, color: "rgba(255,255,255,0.6)", marginTop: 2 }}>{transfer.error}</Text>
+                  <Text style={{ fontSize: 11, color: "#FCA5A5", fontWeight: "600", marginTop: 2 }}>
+                    Debug: {transfer.error}
+                  </Text>
                 )}
               </View>
               {(transfer.status || transfer.error) && !transfer.transferring && !transfer.waitingApproval && (

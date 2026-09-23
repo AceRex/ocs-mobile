@@ -669,9 +669,11 @@ export const useAgendaStore = create<AgendaState>((set, get) => ({
     console.log(`[AGENDA-SEND ${corrId}] Agenda ID = ${agenda.id}, title = "${agenda.name}", sessions = ${agenda.sessions?.length || 0}, cues = ${(agenda.sessions || []).reduce((acc, s) => acc + (s.timelineItems?.length || 0), 0)}`);
     console.log(`[AGENDA-SEND ${corrId}] transfer.status = "${get().transfer.status}", transfer.error = "${get().transfer.error}"`);
 
-    if (!socket || !socketStore.isConnected || !socketStore.isPaired) {
+    if (!socket || !socket.connected || !socketStore.isConnected || !socketStore.isPaired) {
       const err = !socket
         ? 'Socket instance is null'
+        : !socket.connected
+        ? 'Socket disconnected before agenda offer'
         : !socketStore.isConnected
         ? 'Socket is not connected to desktop'
         : 'Mobile is not paired with desktop';
@@ -681,11 +683,11 @@ export const useAgendaStore = create<AgendaState>((set, get) => ({
           transferring: false,
           waitingApproval: false,
           progress: 0,
-          status: 'Pairing required',
-          error: `Mobile is not connected and paired with desktop controller (${err})`,
+          status: "Couldn't send Agenda",
+          error: err,
         },
       });
-      return { ok: false, error: `Mobile is not connected and paired with desktop controller (${err})` };
+      return { ok: false, error: err };
     }
 
     set({
@@ -700,11 +702,11 @@ export const useAgendaStore = create<AgendaState>((set, get) => ({
 
     try {
       console.log(`[AGENDA-SEND ${corrId}] payload built, emitting mobile-agenda-offer`);
-      // Step 1: Handshake offer with 15-second timeout
+      // Step 1: Handshake offer with 15-second timeout (transport ACK only)
       const offerRes: any = await new Promise((resolve, reject) => {
         const timeout = setTimeout(() => {
           console.warn(`[AGENDA-SEND ${corrId}] TIMEOUT waiting for desktop offer acknowledgement (15s)`);
-          reject(new Error('Connection timed out waiting for desktop to receive offer'));
+          reject(new Error('Agenda offer timed out waiting for desktop acknowledgement'));
         }, 15000);
 
         socket.emit(
@@ -724,7 +726,7 @@ export const useAgendaStore = create<AgendaState>((set, get) => ({
 
       if (!offerRes?.ok) {
         console.warn(`[AGENDA-SEND ${corrId}] desktop rejected offer: ${offerRes?.error}`);
-        throw new Error(offerRes?.error || 'Failed to submit agenda offer');
+        throw new Error(offerRes?.error ? `Desktop rejected offer: ${offerRes.error}` : 'Failed to submit agenda offer');
       }
 
       const transferId = offerRes.transferId;
@@ -743,10 +745,12 @@ export const useAgendaStore = create<AgendaState>((set, get) => ({
       });
 
       const responseData: any = await new Promise((resolve, reject) => {
+        // Human operator approval does not have a 15-second timeout.
+        // Generous 30-minute safeguard allows the operator to review as long as needed.
         const timeout = setTimeout(() => {
           socket.off('agenda-offer-responded', handleResponse);
-          reject(new Error('Timed out waiting for desktop operator approval'));
-        }, 180000); // 3 minutes timeout
+          reject(new Error('Timed out waiting for desktop operator approval (30m)'));
+        }, 1800000); // 30 minutes
 
         const handleResponse = (data: any) => {
           if (data && data.transferId === transferId) {
