@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo } from "react";
+import React, { useEffect, useState, useMemo, useRef } from "react";
 import {
   View,
   Text,
@@ -8,32 +8,37 @@ import {
   Alert,
   Modal,
   ActivityIndicator,
+  StyleSheet,
+  Pressable,
+  Keyboard,
 } from "react-native";
 import { Stack, useRouter } from "expo-router";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import {
-  CaretLeft,
+  ArrowLeft,
   Plus,
   Trash,
-  Play,
-  Check,
   X,
-  Clock,
   Image as ImageIcon,
   FilmSlate,
   SpeakerHigh,
   PaperPlaneRight,
-  ArrowsClockwise,
   Copy,
   ArrowCounterClockwise,
   ArrowClockwise,
   WarningCircle,
   PencilSimple,
   DotsThreeVertical,
+  CaretRight,
+  CheckCircle,
+  XCircle,
+  Clock,
 } from "phosphor-react-native";
 import * as DocumentPicker from "expo-document-picker";
-import { useAgendaStore, AgendaSession, TimelineItem, AgendaDocument } from "../store/agendaStore";
+import { useAgendaStore, TimelineItem } from "../store/agendaStore";
 import { useSocketStore } from "../store/socketStore";
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function formatSecToHMS(totalSec: number) {
   const s = Math.max(0, Math.floor(totalSec || 0));
@@ -44,8 +49,42 @@ function formatSecToHMS(totalSec: number) {
   return `${pad(h)}:${pad(m)}:${pad(sec)}`;
 }
 
+function formatSecToMinSec(totalSec: number) {
+  const s = Math.max(0, Math.floor(totalSec || 0));
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  const sec = s % 60;
+  return sec > 0 ? `${m}m ${sec}s` : `${m} min`;
+}
+
+function formatTimestamp(sec: number) {
+  const m = Math.floor(sec / 60);
+  const s = sec % 60;
+  return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+}
+
+function getCueType(cue: TimelineItem): "audio" | "video" | "image" {
+  if (cue.track === "audio" || cue.mediaType === "audio") return "audio";
+  if (
+    cue.mediaType === "video" ||
+    cue.track === "video" ||
+    (cue.name && /\.(mp4|mov|webm|mkv|avi)$/i.test(cue.name))
+  )
+    return "video";
+  return "image";
+}
+
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+type AgendaView = "overview" | "session" | "cues" | "cue_editor";
+type SendState = "disconnected" | "ready" | "sending" | "waiting" | "accepted" | "declined" | "error";
+
+// ─── Screen ───────────────────────────────────────────────────────────────────
+
 export default function MobileAgendaScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
+
   const {
     agendas,
     activeAgendaId,
@@ -55,11 +94,9 @@ export default function MobileAgendaScreen() {
     duplicateAgenda,
     deleteAgenda,
     setActiveAgendaId,
-    updateAgenda,
     addSession,
     updateSession,
     deleteSession,
-    reorderSessions,
     addTimelineItem,
     updateTimelineItem,
     deleteTimelineItem,
@@ -73,25 +110,68 @@ export default function MobileAgendaScreen() {
 
   const { isConnected, isPaired } = useSocketStore();
 
+  // ── Navigation ──────────────────────────────────────────────────────────────
+  const [viewStack, setViewStack] = useState<AgendaView[]>(["overview"]);
+  const currentView = viewStack[viewStack.length - 1];
+  const pushView = (v: AgendaView) => setViewStack((s) => [...s, v]);
+  const popView = () => setViewStack((s) => (s.length > 1 ? s.slice(0, -1) : s));
+
+  // ── Selection ───────────────────────────────────────────────────────────────
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
   const [editingCue, setEditingCue] = useState<TimelineItem | null>(null);
-  const [timelineZoom, setTimelineZoom] = useState<number>(1);
-  const [isAgendaPickerOpen, setIsAgendaPickerOpen] = useState<boolean>(false);
-  const [newAgendaName, setNewAgendaName] = useState("");
-  const [isAddingAgenda, setIsAddingAgenda] = useState(false);
+  const [cueSessionId, setCueSessionId] = useState<string | null>(null);
 
-  // Mobile Context Menu, Rename, & Delete-with-Undo
+  // ── Modals ──────────────────────────────────────────────────────────────────
   const [cueActionMenu, setCueActionMenu] = useState<{ cue: TimelineItem; sessionId: string } | null>(null);
   const [renamingCue, setRenamingCue] = useState<{ cueId: string; name: string; sessionId: string } | null>(null);
   const [deletedCueUndo, setDeletedCueUndo] = useState<{ cue: TimelineItem; sessionId: string; timeoutId?: any } | null>(null);
+  const [isAgendaPickerOpen, setIsAgendaPickerOpen] = useState(false);
+  const [newAgendaName, setNewAgendaName] = useState("");
+  const [isAddingAgenda, setIsAddingAgenda] = useState(false);
+  const [addCueSheetOpen, setAddCueSheetOpen] = useState(false);
+  const [sessionActionMenu, setSessionActionMenu] = useState<any | null>(null);
+  const [editingField, setEditingField] = useState<{
+    field: "name" | "durationSec" | "intervalSec" | "person" | "notes";
+    value: string;
+  } | null>(null);
+
+  // ── Send state ──────────────────────────────────────────────────────────────
+  const [sendSuccess, setSendSuccess] = useState(false);
+  const sendSuccessTimer = useRef<any>(null);
+
+  useEffect(() => { init(); }, []);
+
+  const currentAgenda = useMemo(
+    () => agendas.find((a) => a.id === activeAgendaId) || agendas[0] || null,
+    [agendas, activeAgendaId]
+  );
+
+  const currentSession = useMemo(() => {
+    if (!currentAgenda || !selectedSessionId) return null;
+    return currentAgenda.sessions.find((s) => s.id === selectedSessionId) || null;
+  }, [currentAgenda, selectedSessionId]);
+
+  const totalStats = useMemo(() => {
+    if (!currentAgenda) return { totalSec: 0, cueCount: 0, conflicts: 0 };
+    let totalSec = 0, cueCount = 0, conflicts = 0;
+    currentAgenda.sessions.forEach((s) => {
+      totalSec += (s.durationSec || 0) + (s.intervalSec || 0);
+      cueCount += (s.timelineItems || []).length;
+      const vids = (s.timelineItems || []).filter((i) => i.track === "video").sort((a, b) => a.startSec - b.startSec);
+      for (let i = 0; i < vids.length - 1; i++) {
+        if (vids[i].startSec + vids[i].durationSec > vids[i + 1].startSec) conflicts++;
+      }
+    });
+    return { totalSec, cueCount, conflicts };
+  }, [currentAgenda]);
+
+  // ── Handlers ────────────────────────────────────────────────────────────────
 
   const handleDeleteCueWithUndo = (cue: TimelineItem, sessionId: string) => {
     if (!currentAgenda) return;
     deleteTimelineItem(currentAgenda.id, sessionId, cue.id);
     if (deletedCueUndo?.timeoutId) clearTimeout(deletedCueUndo.timeoutId);
-    const timeoutId = setTimeout(() => {
-      setDeletedCueUndo(null);
-    }, 6000);
+    const timeoutId = setTimeout(() => setDeletedCueUndo(null), 6000);
     setDeletedCueUndo({ cue, sessionId, timeoutId });
   };
 
@@ -102,1037 +182,881 @@ export default function MobileAgendaScreen() {
     setDeletedCueUndo(null);
   };
 
-  useEffect(() => {
-    init();
-  }, []);
-
-  const currentAgenda = useMemo(() => {
-    return agendas.find((a) => a.id === activeAgendaId) || agendas[0] || null;
-  }, [agendas, activeAgendaId]);
-
-  useEffect(() => {
-    if (currentAgenda && !selectedSessionId && currentAgenda.sessions.length > 0) {
-      setSelectedSessionId(currentAgenda.sessions[0].id);
-    }
-  }, [currentAgenda, selectedSessionId]);
-
-  const currentSession = useMemo(() => {
-    if (!currentAgenda) return null;
-    return (
-      currentAgenda.sessions.find((s) => s.id === selectedSessionId) ||
-      currentAgenda.sessions[0] ||
-      null
-    );
-  }, [currentAgenda, selectedSessionId]);
-
-  // Total runtime calculations
-  const totalStats = useMemo(() => {
-    if (!currentAgenda) return { totalSec: 0, mediaCount: 0, conflicts: 0 };
-    let totalSec = 0;
-    let mediaCount = 0;
-    let conflicts = 0;
-
-    currentAgenda.sessions.forEach((s) => {
-      totalSec += (s.durationSec || 0) + (s.intervalSec || 0);
-      mediaCount += (s.timelineItems || []).length;
-
-      // check conflicts
-      const videoItems = (s.timelineItems || [])
-        .filter((i) => i.track === "video")
-        .sort((a, b) => a.startSec - b.startSec);
-      for (let i = 0; i < videoItems.length - 1; i++) {
-        if (videoItems[i].startSec + videoItems[i].durationSec > videoItems[i + 1].startSec) {
-          conflicts++;
-        }
-      }
-    });
-
-    return { totalSec, mediaCount, conflicts };
-  }, [currentAgenda]);
-
-  const handlePickMedia = async (track: "visual" | "background" | "video" | "audio", mediaTypeHint?: "image" | "video") => {
+  const handlePickMedia = async (
+    track: "visual" | "background" | "video" | "audio",
+    mediaTypeHint?: "image" | "video",
+    targetSessionId?: string
+  ) => {
     try {
       const isAudio = track === "audio";
       const isVideo = !isAudio && (mediaTypeHint === "video" || track === "video");
       const typeStr = isAudio ? "audio/*" : isVideo ? "video/*" : "image/*";
-
-      const res = await DocumentPicker.getDocumentAsync({
-        type: [typeStr],
-        copyToCacheDirectory: true,
-      });
-
-      if (res.canceled || !res.assets || res.assets.length === 0) return;
+      const res = await DocumentPicker.getDocumentAsync({ type: [typeStr], copyToCacheDirectory: true });
+      if (res.canceled || !res.assets || !res.assets.length) return;
       const file = res.assets[0];
-
       const asset = await importMediaAsset(
-        file.uri,
-        file.name,
-        file.mimeType || "application/octet-stream",
-        isAudio ? "audio" : isVideo ? "video" : "image",
-        file.size
+        file.uri, file.name, file.mimeType || "application/octet-stream",
+        isAudio ? "audio" : isVideo ? "video" : "image", file.size
       );
-
-      if (asset && currentAgenda && currentSession) {
-        addTimelineItem(currentAgenda.id, currentSession.id, {
+      const sessId = targetSessionId || selectedSessionId;
+      if (asset && currentAgenda && sessId) {
+        addTimelineItem(currentAgenda.id, sessId, {
           track: isAudio ? "audio" : "visual",
           mediaType: isAudio ? "audio" : isVideo ? "video" : "image",
           presentationMode: isVideo ? "foreground" : "background",
-          actionType: "range",
-          startSec: 0,
+          actionType: "range", startSec: 0,
           durationSec: isAudio ? 180 : 60,
-          assetId: asset.id,
-          name: asset.originalName,
-          destination: "all",
-          endBehavior: "hold",
+          assetId: asset.id, name: asset.originalName,
+          destination: "all", endBehavior: "hold",
         });
       }
-    } catch (err: any) {
-      Alert.alert("Media Error", err.message);
-    }
+    } catch (err: any) { Alert.alert("Media Error", err.message); }
+  };
+
+  const getSendState = (): SendState => {
+    if (!isConnected || !isPaired) return "disconnected";
+    if (transfer.waitingApproval) return "waiting";
+    if (transfer.transferring) return "sending";
+    if (sendSuccess || transfer.status === "Agenda accepted ✓") return "accepted";
+    if (transfer.status === "Agenda declined") return "declined";
+    if (transfer.error) return "error";
+    return "ready";
   };
 
   const handleSendToDesktop = async () => {
     if (!currentAgenda) return;
-    if (!isConnected || !isPaired) {
-      Alert.alert(
-        "Pairing Required",
-        "Please connect and pair with the desktop controller on the LAN first."
-      );
+    const state = getSendState();
+    if (state === "disconnected") {
+      Alert.alert("Not Paired", "Connect to the desktop controller on the same Wi-Fi first.", [
+        { text: "Go to Connect", onPress: () => router.push("/connect") },
+        { text: "Cancel", style: "cancel" },
+      ]);
+      return;
+    }
+    if (state === "sending" || state === "waiting") {
+      return;
+    }
+    if (state === "accepted") {
+      Alert.alert("Already Accepted", "This agenda has already been accepted by the desktop controller. You can send updates again if desired.", [
+        { text: "Cancel", style: "cancel" },
+        { text: "Send Again", onPress: () => sendToDesktop(currentAgenda.id) },
+      ]);
       return;
     }
 
     const res = await sendToDesktop(currentAgenda.id);
     if (res.ok) {
-      Alert.alert(
-        "Transfer Complete",
-        `"${currentAgenda.name}" was received and validated on the desktop controller.`
-      );
-    } else {
-      Alert.alert("Transfer Failed", res.error || "Could not transfer agenda.");
+      setSendSuccess(true);
+      if (sendSuccessTimer.current) clearTimeout(sendSuccessTimer.current);
+      sendSuccessTimer.current = setTimeout(() => setSendSuccess(false), 6000);
     }
   };
 
-  return (
-    <SafeAreaView className="flex-1 bg-[#0A0713]">
-      <Stack.Screen options={{ headerShown: false }} />
+  const handleDeleteAgendaMobile = (agenda: { id: string; name?: string }) => {
+    Alert.alert(
+      "Delete Agenda",
+      `Are you sure you want to delete "${agenda.name || "Untitled Agenda"}"? This action cannot be undone.\n\nNote: Reusable media files will remain safely in your Media Library.`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete Agenda",
+          style: "destructive",
+          onPress: async () => {
+            await deleteAgenda(agenda.id);
+          },
+        },
+      ]
+    );
+  };
 
-      {/* Top Header Navigation */}
-      <View className="flex-row items-center justify-between px-4 py-3 border-b border-white/10 bg-[#120D22]">
-        <TouchableOpacity
-          onPress={() => router.back()}
-          className="p-2 bg-white/5 rounded-[12px] border border-white/10"
-        >
-          <CaretLeft size={20} color="#FFFFFF" />
-        </TouchableOpacity>
+  const commitFieldEdit = () => {
+    if (!editingField || !currentAgenda || !currentSession) return;
+    const { field, value } = editingField;
+    if (field === "durationSec" || field === "intervalSec") {
+      updateSession(currentAgenda.id, currentSession.id, {
+        [field]: Math.max(field === "durationSec" ? 1 : 0, parseInt(value, 10) || 0),
+      });
+    } else {
+      updateSession(currentAgenda.id, currentSession.id, { [field]: value });
+    }
+    setEditingField(null);
+  };
 
-        <TouchableOpacity
-          onPress={() => setIsAgendaPickerOpen(true)}
-          className="flex-row items-center gap-2 px-3 py-1.5 bg-white/5 rounded-[12px] border border-white/10"
-        >
-          <Clock size={16} color="#A78BFA" />
-          <Text className="text-white font-bold text-sm max-w-[160px]" numberOfLines={1}>
-            {currentAgenda ? currentAgenda.name : "Select Agenda"}
-          </Text>
-          <PencilSimple size={12} color="#A78BFA" />
-        </TouchableOpacity>
+  // ─────────────────────────────────────────────────────────────────────────────
+  // SCREEN 1 — SERVICE OVERVIEW
+  // ─────────────────────────────────────────────────────────────────────────────
 
-        <TouchableOpacity
-          onPress={handleSendToDesktop}
-          className="flex-row items-center gap-1.5 px-3 py-2 bg-[#7C3AED] rounded-[12px] shadow-md shadow-[#7C3AED]/30"
-        >
-          <PaperPlaneRight size={14} color="#FFFFFF" weight="bold" />
-          <Text className="text-white font-bold text-xs uppercase tracking-wider">
-            Send
-          </Text>
-        </TouchableOpacity>
-      </View>
+  const renderOverview = () => {
+    const sendState = getSendState();
+    const sendLabel = 
+      sendState === "sending" ? "Sending…"
+      : sendState === "waiting" ? "Waiting…"
+      : sendState === "accepted" ? "Accepted ✓"
+      : sendState === "declined" ? "Declined"
+      : sendState === "error" ? "Error"
+      : "Send";
 
-      <ScrollView className="flex-1 px-4 py-3" showsVerticalScrollIndicator={false}>
-        {/* Runtime & Summary Card */}
-        <View className="bg-[#17112B] p-4 rounded-[12px] border border-white/10 mb-4 shadow-lg">
-          <View className="flex-row items-center justify-between mb-2">
-            <Text className="text-white/60 text-xs font-semibold uppercase tracking-wider">
-              Total Planned Service Runtime
-            </Text>
-            {totalStats.conflicts > 0 && (
-              <View className="flex-row items-center gap-1 px-2 py-0.5 bg-amber-500/20 rounded-[12px] border border-amber-500/40">
-                <WarningCircle size={12} color="#F59E0B" weight="fill" />
-                <Text className="text-amber-300 text-[10px] font-bold">
-                  {totalStats.conflicts} Overlaps
-                </Text>
-              </View>
-            )}
-          </View>
-          <Text className="text-3xl font-black text-white tracking-tight">
-            {formatSecToHMS(totalStats.totalSec)}
-          </Text>
-          <View className="flex-row items-center gap-4 mt-2 pt-2 border-t border-white/5">
-            <Text className="text-white/50 text-xs">
-              {currentAgenda?.sessions.length || 0} Sessions
-            </Text>
-            <Text className="text-white/30">•</Text>
-            <Text className="text-white/50 text-xs">
-              {totalStats.mediaCount} Scheduled Cues
-            </Text>
-            <Text className="text-white/30">•</Text>
-            <View className="flex-row gap-2 ml-auto">
-              <TouchableOpacity
-                onPress={() => currentAgenda && undo(currentAgenda.id)}
-                className="p-1.5 bg-white/5 rounded-[12px]"
-              >
-                <ArrowCounterClockwise size={14} color="#FFFFFF" />
-              </TouchableOpacity>
-              <TouchableOpacity
-                onPress={() => currentAgenda && redo(currentAgenda.id)}
-                className="p-1.5 bg-white/5 rounded-[12px]"
-              >
-                <ArrowClockwise size={14} color="#FFFFFF" />
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
+    const sendBg = 
+      sendState === "disconnected" ? "rgba(255,255,255,0.07)"
+      : sendState === "waiting" ? "#D97706"
+      : sendState === "accepted" ? "#16A34A"
+      : sendState === "declined" ? "#EA580C"
+      : sendState === "error" ? "#DC2626"
+      : "#5B5EFF";
 
-        {/* Sessions Tab Scroll */}
-        <View className="flex-row items-center justify-between mb-2">
-          <Text className="text-white font-bold text-sm uppercase tracking-wider">
-            Sessions
-          </Text>
+    return (
+      <>
+        <View style={S.header}>
+          <TouchableOpacity onPress={() => router.back()} style={S.backBtn}>
+            <ArrowLeft size={18} color="#FFF" weight="bold" />
+          </TouchableOpacity>
+          <TouchableOpacity onPress={() => setIsAgendaPickerOpen(true)} style={{ flex: 1, flexDirection: "row", alignItems: "center", gap: 4 }}>
+            <Text style={S.headerTitle} numberOfLines={1}>{currentAgenda?.name || "Agenda"}</Text>
+            <CaretRight size={13} color="rgba(255,255,255,0.35)" weight="bold" />
+          </TouchableOpacity>
           <TouchableOpacity
-            onPress={() => currentAgenda && addSession(currentAgenda.id, "New Session", 300)}
-            className="flex-row items-center gap-1 px-2.5 py-1 bg-white/5 rounded-[12px] border border-white/10"
+            onPress={handleSendToDesktop}
+            disabled={sendState === "sending" || sendState === "waiting"}
+            style={[S.sendBtn, { backgroundColor: sendBg, opacity: sendState === "disconnected" ? 0.55 : 1 }]}
           >
-            <Plus size={12} color="#A78BFA" weight="bold" />
-            <Text className="text-white text-xs font-semibold">Add Session</Text>
+            {sendState === "sending" ? (
+              <ActivityIndicator size="small" color="#FFF" />
+            ) : sendState === "waiting" ? (
+              <Clock size={13} color="#FFF" weight="bold" />
+            ) : sendState === "accepted" ? (
+              <CheckCircle size={13} color="#FFF" weight="fill" />
+            ) : sendState === "declined" ? (
+              <XCircle size={13} color="#FFF" weight="fill" />
+            ) : sendState === "error" ? (
+              <XCircle size={13} color="#FFF" weight="fill" />
+            ) : (
+              <PaperPlaneRight size={13} color="#FFF" weight="bold" />
+            )}
+            <Text style={S.sendBtnText}>{sendLabel}</Text>
           </TouchableOpacity>
         </View>
 
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          className="flex-row gap-2 mb-4"
-        >
-          {(currentAgenda?.sessions || []).map((s, idx) => {
-            const isSelected = s.id === currentSession?.id;
+        <ScrollView style={{ flex: 1 }} contentContainerStyle={[S.scroll, { paddingBottom: insets.bottom + 24 }]} showsVerticalScrollIndicator={false}>
+          {/* Transfer Status Banner */}
+          {(transfer.transferring || transfer.waitingApproval || transfer.status || transfer.error) ? (
+            <View style={{
+              backgroundColor: transfer.error ? "rgba(220,38,38,0.15)"
+                : transfer.waitingApproval ? "rgba(217,119,6,0.15)"
+                : transfer.status === "Agenda declined" ? "rgba(234,88,12,0.15)"
+                : transfer.status === "Agenda accepted ✓" ? "rgba(22,163,74,0.15)"
+                : "rgba(124,58,237,0.15)",
+              borderColor: transfer.error ? "rgba(220,38,38,0.3)"
+                : transfer.waitingApproval ? "rgba(217,119,6,0.3)"
+                : transfer.status === "Agenda declined" ? "rgba(234,88,12,0.3)"
+                : transfer.status === "Agenda accepted ✓" ? "rgba(22,163,74,0.3)"
+                : "rgba(124,58,237,0.3)",
+              borderWidth: 1,
+              borderRadius: 12,
+              paddingHorizontal: 12,
+              paddingVertical: 10,
+              marginBottom: 12,
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 8,
+            }}>
+              {transfer.waitingApproval ? (
+                <Clock size={16} color="#F59E0B" weight="fill" />
+              ) : transfer.transferring ? (
+                <ActivityIndicator size="small" color="#A78BFA" />
+              ) : transfer.error || transfer.status === "Agenda declined" ? (
+                <XCircle size={16} color="#EF4444" weight="fill" />
+              ) : (
+                <CheckCircle size={16} color="#10B981" weight="fill" />
+              )}
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontSize: 12, fontWeight: "600", color: "#FFF" }}>
+                  {transfer.status || (transfer.error ? "Couldn't send Agenda" : "Transferring...")}
+                </Text>
+                {transfer.error && (
+                  <Text style={{ fontSize: 11, color: "rgba(255,255,255,0.6)", marginTop: 2 }}>{transfer.error}</Text>
+                )}
+              </View>
+              {(transfer.status || transfer.error) && !transfer.transferring && !transfer.waitingApproval && (
+                <TouchableOpacity
+                  onPress={() => useAgendaStore.setState({ transfer: { transferring: false, waitingApproval: false, progress: 0, status: "", error: null } })}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
+                  <X size={14} color="rgba(255,255,255,0.5)" />
+                </TouchableOpacity>
+              )}
+            </View>
+          ) : null}
+
+          {/* Runtime card */}
+          <View style={S.runtimeCard}>
+            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
+              <Text style={S.runtimeLabel}>PLANNED RUNTIME</Text>
+              {totalStats.conflicts > 0 && (
+                <View style={S.conflictBadge}>
+                  <WarningCircle size={11} color="#F59E0B" weight="fill" />
+                  <Text style={S.conflictText}>{totalStats.conflicts} Overlap{totalStats.conflicts !== 1 ? "s" : ""}</Text>
+                </View>
+              )}
+            </View>
+            <Text style={S.runtimeValue}>{formatSecToHMS(totalStats.totalSec)}</Text>
+            <View style={S.runtimeMeta}>
+              <Text style={S.runtimeMetaItem}>{currentAgenda?.sessions.length || 0} Sessions</Text>
+              <Text style={S.runtimeMetaDot}>·</Text>
+              <Text style={S.runtimeMetaItem}>{totalStats.cueCount} Cues</Text>
+              <View style={{ flex: 1 }} />
+              <TouchableOpacity onPress={() => currentAgenda && undo(currentAgenda.id)} style={S.iconSmallBtn}>
+                <ArrowCounterClockwise size={13} color="rgba(255,255,255,0.55)" />
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => currentAgenda && redo(currentAgenda.id)} style={S.iconSmallBtn}>
+                <ArrowClockwise size={13} color="rgba(255,255,255,0.55)" />
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          {/* Sessions */}
+          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+            <Text style={S.sectionTitle}>Sessions</Text>
+            <TouchableOpacity
+              onPress={() => currentAgenda && addSession(currentAgenda.id, "New Session", 300)}
+              style={S.addBtn}
+            >
+              <Plus size={12} color="#A78BFA" weight="bold" />
+              <Text style={S.addBtnText}>Add</Text>
+            </TouchableOpacity>
+          </View>
+
+          {(!currentAgenda?.sessions || currentAgenda.sessions.length === 0) ? (
+            <View style={{
+              backgroundColor: "rgba(255,255,255,0.03)",
+              borderColor: "rgba(255,255,255,0.07)",
+              borderWidth: 1,
+              borderRadius: 12,
+              padding: 24,
+              alignItems: "center",
+              justifyContent: "center",
+              marginTop: 8,
+            }}>
+              <Text style={{ color: "rgba(255,255,255,0.45)", fontSize: 13, marginBottom: 12, textAlign: "center" }}>
+                This agenda is empty. Add a session to get started.
+              </Text>
+              <TouchableOpacity
+                onPress={() => currentAgenda && addSession(currentAgenda.id, "Session 1", 300)}
+                style={{
+                  backgroundColor: "rgba(124,58,237,0.25)",
+                  borderColor: "rgba(124,58,237,0.5)",
+                  borderWidth: 1,
+                  paddingHorizontal: 16,
+                  paddingVertical: 9,
+                  borderRadius: 12,
+                }}
+              >
+                <Text style={{ color: "#C4B5FD", fontWeight: "bold", fontSize: 12 }}>+ Add Session</Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            (currentAgenda?.sessions || []).map((session, idx) => {
+            const cCount = session.timelineItems?.length || 0;
             return (
               <TouchableOpacity
-                key={s.id}
-                onPress={() => setSelectedSessionId(s.id)}
-                className={`px-3 py-2 rounded-[12px] border min-w-[120px] ${
-                  isSelected
-                    ? "bg-[#7C3AED]/20 border-[#7C3AED]"
-                    : "bg-[#17112B] border-white/10"
-                }`}
+                key={session.id}
+                onPress={() => { setSelectedSessionId(session.id); pushView("session"); }}
+                style={S.sessionRow}
+                activeOpacity={0.75}
               >
-                <Text
-                  className={`text-xs font-bold ${
-                    isSelected ? "text-white" : "text-white/60"
-                  }`}
-                  numberOfLines={1}
-                >
-                  {idx + 1}. {s.name}
-                </Text>
-                <Text className="text-[10px] text-white/40 mt-1">
-                  {formatSecToHMS(s.durationSec)}
-                  {s.intervalSec > 0 ? ` (+${s.intervalSec}s)` : ""}
-                </Text>
+                <View style={S.sessionIndex}>
+                  <Text style={S.sessionIndexText}>{idx + 1}</Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={S.sessionName} numberOfLines={1}>{session.name}</Text>
+                  <Text style={S.sessionMeta}>
+                    {formatSecToMinSec(session.durationSec)} · {session.transitionMode === "auto" ? "Auto" : "Manual"}
+                    {cCount > 0 ? ` · ${cCount} Cue${cCount !== 1 ? "s" : ""}` : ""}
+                  </Text>
+                  {session.person ? <Text style={S.sessionPerson} numberOfLines={1}>{session.person}</Text> : null}
+                </View>
+                <CaretRight size={16} color="rgba(255,255,255,0.25)" weight="bold" />
               </TouchableOpacity>
+            );
+          })
+        )}
+      </ScrollView>
+      </>
+    );
+  };
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // SCREEN 2 — SESSION EDITOR
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  const renderSessionEditor = () => {
+    if (!currentSession) return null;
+    const cCount = currentSession.timelineItems?.length || 0;
+
+    const row = (label: string, val: string, onPress: () => void, right?: React.ReactNode) => (
+      <TouchableOpacity onPress={onPress} style={S.settingRow} activeOpacity={0.7}>
+        <Text style={S.settingLabel}>{label}</Text>
+        {right ?? (
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+            <Text style={S.settingVal} numberOfLines={1}>{val}</Text>
+            <CaretRight size={14} color="rgba(255,255,255,0.25)" weight="bold" />
+          </View>
+        )}
+      </TouchableOpacity>
+    );
+
+    return (
+      <>
+        <View style={S.header}>
+          <TouchableOpacity onPress={popView} style={S.backBtn}>
+            <ArrowLeft size={18} color="#FFF" weight="bold" />
+          </TouchableOpacity>
+          <Text style={[S.headerTitle, { flex: 1 }]} numberOfLines={1}>{currentSession.name}</Text>
+          <TouchableOpacity onPress={() => setSessionActionMenu(currentSession)} style={S.iconBtn}>
+            <DotsThreeVertical size={20} color="#FFF" weight="bold" />
+          </TouchableOpacity>
+        </View>
+
+        <ScrollView style={{ flex: 1 }} contentContainerStyle={[S.scroll, { paddingBottom: insets.bottom + 24 }]} showsVerticalScrollIndicator={false}>
+          <Text style={S.sessionEditorMeta}>
+            {formatSecToMinSec(currentSession.durationSec)} · {currentSession.transitionMode === "auto" ? "Auto advance" : "Manual"} · {cCount} Cue{cCount !== 1 ? "s" : ""}
+          </Text>
+
+          <Text style={S.sectionTitle}>SESSION DETAILS</Text>
+          <View style={S.card}>
+            {row("Duration", formatSecToMinSec(currentSession.durationSec), () => setEditingField({ field: "durationSec", value: String(currentSession.durationSec) }))}
+            <View style={S.divider} />
+            {row("Interval", currentSession.intervalSec > 0 ? `${currentSession.intervalSec}s` : "None", () => setEditingField({ field: "intervalSec", value: String(currentSession.intervalSec || 0) }))}
+            <View style={S.divider} />
+            {row(
+              "Advance",
+              currentSession.transitionMode === "auto" ? "Auto" : "Manual",
+              () => currentAgenda && updateSession(currentAgenda.id, currentSession.id, {
+                transitionMode: currentSession.transitionMode === "auto" ? "manual" : "auto",
+              }),
+              <View style={[S.pill, currentSession.transitionMode === "auto" && S.pillActive]}>
+                <Text style={[S.pillText, currentSession.transitionMode === "auto" && S.pillTextActive]}>
+                  {currentSession.transitionMode === "auto" ? "Auto" : "Manual"}
+                </Text>
+              </View>
+            )}
+            <View style={S.divider} />
+            {row("Presenter", currentSession.person || "Not set", () => setEditingField({ field: "person", value: currentSession.person || "" }))}
+            <View style={S.divider} />
+            {row(
+              "Recording",
+              "",
+              () => currentAgenda && updateSession(currentAgenda.id, currentSession.id, { recordSession: !currentSession.recordSession }),
+              <View style={[S.toggle, currentSession.recordSession && S.toggleOn]}>
+                <View style={[S.toggleThumb, currentSession.recordSession && S.toggleThumbOn]} />
+              </View>
+            )}
+            <View style={S.divider} />
+            {row(
+              "Notes",
+              currentSession.notes ? currentSession.notes.slice(0, 32) + (currentSession.notes.length > 32 ? "…" : "") : "Add notes…",
+              () => setEditingField({ field: "notes", value: currentSession.notes || "" })
+            )}
+          </View>
+
+          <Text style={[S.sectionTitle, { marginTop: 22 }]}>MEDIA</Text>
+          <View style={S.card}>
+            <TouchableOpacity onPress={() => pushView("cues")} style={S.settingRow} activeOpacity={0.75}>
+              <Text style={S.settingLabel}>Media Cues</Text>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                <View style={S.badge}><Text style={S.badgeText}>{cCount}</Text></View>
+                <CaretRight size={14} color="rgba(255,255,255,0.25)" weight="bold" />
+              </View>
+            </TouchableOpacity>
+          </View>
+        </ScrollView>
+      </>
+    );
+  };
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // SCREEN 3 — MEDIA CUES
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  const renderMediaCues = () => {
+    if (!currentSession) return null;
+    const sorted = [...(currentSession.timelineItems || [])].sort((a, b) => a.startSec - b.startSec);
+
+    return (
+      <>
+        <View style={S.header}>
+          <TouchableOpacity onPress={popView} style={S.backBtn}>
+            <ArrowLeft size={18} color="#FFF" weight="bold" />
+          </TouchableOpacity>
+          <Text style={[S.headerTitle, { flex: 1 }]}>Media Cues</Text>
+          <TouchableOpacity onPress={() => setAddCueSheetOpen(true)} style={S.iconBtn}>
+            <Plus size={18} color="#A78BFA" weight="bold" />
+          </TouchableOpacity>
+        </View>
+        <View style={S.subheader}>
+          <Text style={S.subheaderText}>{currentSession.name}</Text>
+        </View>
+
+        <ScrollView style={{ flex: 1 }} contentContainerStyle={[S.scroll, { paddingBottom: insets.bottom + 32 }]} showsVerticalScrollIndicator={false}>
+          {!sorted.length && (
+            <View style={S.empty}>
+              <ImageIcon size={32} color="rgba(255,255,255,0.18)" />
+              <Text style={S.emptyTitle}>No cues yet</Text>
+              <Text style={S.emptySub}>Tap + to add image, video, or audio</Text>
+              <TouchableOpacity onPress={() => setAddCueSheetOpen(true)} style={S.emptyAddBtn}>
+                <Plus size={14} color="#FFF" weight="bold" />
+                <Text style={S.emptyAddBtnText}>Add Cue</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+          {sorted.map((cue) => {
+            const type = getCueType(cue);
+            const color = type === "audio" ? "#FBBF24" : type === "video" ? "#60A5FA" : "#C084FC";
+            const bg = type === "audio" ? "rgba(251,191,36,0.1)" : type === "video" ? "rgba(96,165,250,0.1)" : "rgba(192,132,252,0.1)";
+            const border = type === "audio" ? "rgba(251,191,36,0.18)" : type === "video" ? "rgba(96,165,250,0.18)" : "rgba(192,132,252,0.18)";
+            const cueDur = cue.durationSec || 60;
+            const cueEnd = cue.startSec + cueDur;
+
+            return (
+              <View key={cue.id}>
+                <Text style={S.cueTimestamp}>{formatTimestamp(cue.startSec)}</Text>
+                <TouchableOpacity
+                  style={[S.cueCard, { borderColor: border }]}
+                  onPress={() => { setEditingCue(cue); setCueSessionId(currentSession.id); pushView("cue_editor"); }}
+                  activeOpacity={0.75}
+                >
+                  <View style={[S.cueIconBox, { backgroundColor: bg }]}>
+                    {type === "audio" ? <SpeakerHigh size={18} color={color} weight="fill" />
+                      : type === "video" ? <FilmSlate size={18} color={color} weight="fill" />
+                      : <ImageIcon size={18} color={color} weight="fill" />}
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={S.cueName} numberOfLines={1}>{cue.name}</Text>
+                    <Text style={S.cueMeta}>{type === "audio" ? "Audio" : type === "video" ? "Video" : "Image"} · {formatTimestamp(cue.startSec)} → {formatTimestamp(cueEnd)}</Text>
+                  </View>
+                  <TouchableOpacity
+                    onPress={() => setCueActionMenu({ cue, sessionId: currentSession.id })}
+                    style={{ padding: 6 }}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  >
+                    <DotsThreeVertical size={16} color="rgba(255,255,255,0.45)" weight="bold" />
+                  </TouchableOpacity>
+                </TouchableOpacity>
+              </View>
             );
           })}
         </ScrollView>
+      </>
+    );
+  };
 
-        {/* Active Session Editor Card */}
-        {currentSession && (
-          <View className="bg-[#17112B] p-4 rounded-[12px] border border-white/10 mb-4">
-            <View className="flex-row items-center justify-between mb-3">
-              <TextInput
-                value={currentSession.name}
-                onChangeText={(val) =>
-                  currentAgenda && updateSession(currentAgenda.id, currentSession.id, { name: val })
-                }
-                placeholder="Session Name"
-                placeholderTextColor="rgba(255,255,255,0.3)"
-                className="text-white font-bold text-base flex-1 mr-2 p-0"
-              />
-              <TouchableOpacity
-                onPress={() => {
-                  Alert.alert("Delete Session", `Delete "${currentSession.name}"?`, [
-                    { text: "Cancel", style: "cancel" },
-                    {
-                      text: "Delete",
-                      style: "destructive",
-                      onPress: () =>
-                        currentAgenda && deleteSession(currentAgenda.id, currentSession.id),
-                    },
-                  ]);
-                }}
-                className="p-1.5 bg-red-500/10 rounded-[12px]"
-              >
-                <Trash size={14} color="#EF4444" />
-              </TouchableOpacity>
-            </View>
+  // ─────────────────────────────────────────────────────────────────────────────
+  // SCREEN 4 — CUE EDITOR (bottom sheet Modal over Screen 3)
+  // ─────────────────────────────────────────────────────────────────────────────
 
-            {/* Session Settings Row */}
-            <View className="flex-row items-center gap-2 mb-3">
-              <View className="flex-1 bg-white/5 p-2 rounded-[12px] border border-white/5">
-                <Text className="text-white/40 text-[10px] uppercase font-bold mb-1">
-                  Duration (Sec)
-                </Text>
-                <TextInput
-                  keyboardType="numeric"
-                  value={String(currentSession.durationSec)}
-                  onChangeText={(val) =>
-                    currentAgenda &&
-                    updateSession(currentAgenda.id, currentSession.id, {
-                      durationSec: Math.max(1, parseInt(val, 10) || 1),
-                    })
-                  }
-                  className="text-white font-bold text-sm p-0"
-                />
-              </View>
+  const renderCueEditor = () => {
+    if (!editingCue || !currentAgenda) return null;
+    const sessId = cueSessionId || selectedSessionId;
+    if (!sessId) return null;
+    const session = currentAgenda.sessions.find((s) => s.id === sessId);
+    if (!session) return null;
+    const cueDur = editingCue.durationSec || 60;
+    const cueEnd = editingCue.startSec + cueDur;
 
-              <View className="flex-1 bg-white/5 p-2 rounded-[12px] border border-white/5">
-                <Text className="text-white/40 text-[10px] uppercase font-bold mb-1">
-                  Interval (Sec)
-                </Text>
-                <TextInput
-                  keyboardType="numeric"
-                  value={String(currentSession.intervalSec || 0)}
-                  onChangeText={(val) =>
-                    currentAgenda &&
-                    updateSession(currentAgenda.id, currentSession.id, {
-                      intervalSec: Math.max(0, parseInt(val, 10) || 0),
-                    })
-                  }
-                  className="text-white font-bold text-sm p-0"
-                />
-              </View>
+    const nudgeStart = (d: number) => {
+      const ns = Math.max(0, Math.min(cueEnd - 1, editingCue.startSec + d));
+      const nd = Math.max(1, cueEnd - ns);
+      const u = { ...editingCue, startSec: ns, durationSec: nd };
+      setEditingCue(u);
+      updateTimelineItem(currentAgenda.id, sessId, editingCue.id, { startSec: ns, durationSec: nd });
+    };
+    const nudgeEnd = (d: number) => {
+      const ne = Math.max(editingCue.startSec + 1, Math.min(session.durationSec, cueEnd + d));
+      const nd = ne - editingCue.startSec;
+      setEditingCue({ ...editingCue, durationSec: nd });
+      updateTimelineItem(currentAgenda.id, sessId, editingCue.id, { durationSec: nd });
+    };
 
-              <TouchableOpacity
-                onPress={() =>
-                  currentAgenda &&
-                  updateSession(currentAgenda.id, currentSession.id, {
-                    transitionMode:
-                      currentSession.transitionMode === "auto" ? "manual" : "auto",
-                  })
-                }
-                className={`px-3 py-2 rounded-[12px] border self-stretch justify-center ${
-                  currentSession.transitionMode === "auto"
-                    ? "bg-emerald-500/20 border-emerald-500/50"
-                    : "bg-white/5 border-white/10"
-                }`}
-              >
-                <Text className="text-white/40 text-[9px] uppercase font-bold">
-                  Advance
-                </Text>
-                <Text className="text-white text-xs font-bold capitalize">
-                  {currentSession.transitionMode}
-                </Text>
-              </TouchableOpacity>
-            </View>
-
-            {/* Record Session Toggle */}
-            <TouchableOpacity
-              activeOpacity={0.7}
-              onPress={() =>
-                currentAgenda &&
-                updateSession(currentAgenda.id, currentSession.id, {
-                  recordSession: !currentSession.recordSession,
-                })
-              }
-              className="flex-row items-center gap-2 p-2.5 bg-black/20 rounded-[12px] border border-white/5"
-            >
-              <View
-                className={`w-4 h-4 rounded-[12px] border items-center justify-center ${
-                  currentSession.recordSession ? "bg-red-600 border-red-500" : "border-white/30"
-                }`}
-              >
-                {currentSession.recordSession && <Check size={10} color="#FFFFFF" weight="bold" />}
-              </View>
-              <Text
-                className={`text-xs font-semibold ${
-                  currentSession.recordSession ? "text-red-300" : "text-white/60"
-                }`}
-              >
-                Record this session (Playout capture)
-              </Text>
-            </TouchableOpacity>
-
-            {/* Person Taking This Session */}
-            <View className="bg-black/20 p-2.5 rounded-[12px] border border-white/5">
-              <Text className="text-white/40 text-[9px] uppercase font-bold mb-1">
-                Person / Presenter
-              </Text>
-              <TextInput
-                value={currentSession.person || ""}
-                onChangeText={(val) =>
-                  currentAgenda &&
-                  updateSession(currentAgenda.id, currentSession.id, { person: val })
-                }
-                placeholder="e.g. Pastor John, Choir, Speaker..."
-                placeholderTextColor="rgba(255,255,255,0.25)"
-                className="text-white font-bold text-xs p-0"
-              />
-            </View>
-
-            {/* Session Notes */}
-            <TextInput
-              value={currentSession.notes || ""}
-              onChangeText={(val) =>
-                currentAgenda && updateSession(currentAgenda.id, currentSession.id, { notes: val })
-              }
-              placeholder="Session notes, scripture passages, or speaker remarks..."
-              placeholderTextColor="rgba(255,255,255,0.25)"
-              multiline
-              className="text-white/70 text-xs bg-black/20 p-2.5 rounded-[12px] border border-white/5 min-h-[44px]"
-            />
-          </View>
-        )}
-
-        {/* Timeline Header & Tracks */}
-        {currentSession && (
-          <View className="bg-[#17112B] p-4 rounded-[12px] border border-white/10 mb-8">
-            <View className="flex-row items-center justify-between mb-3">
-              <Text className="text-white font-bold text-sm uppercase tracking-wider">
-                Session Media Timeline
-              </Text>
-              <View className="flex-row items-center gap-1.5">
-                {[1, 2, 5].map((z) => (
-                  <TouchableOpacity
-                    key={z}
-                    onPress={() => setTimelineZoom(z)}
-                    className={`px-2 py-0.5 rounded-[12px] ${
-                      timelineZoom === z ? "bg-[#7C3AED]" : "bg-white/5"
-                    }`}
-                  >
-                    <Text className="text-white text-[10px] font-bold">{z}x</Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            </View>
-
-            {/* Action Cues List by Track with Interactive Range & Edge Handles */}
-            {(() => {
-              const renderCueItem = (cue: TimelineItem, trackType: "background" | "video" | "audio") => {
-                const sessionDur = currentSession?.durationSec || 300;
-                const cueDur = cue.durationSec || (trackType === "background" ? 300 : 60);
-                const cueEnd = cue.startSec + cueDur;
-
-                const handleNudgeStart = (deltaSec: number) => {
-                  if (!currentAgenda || !currentSession) return;
-                  const newStart = Math.max(0, Math.min(cueEnd - 1, cue.startSec + deltaSec));
-                  const newDur = Math.max(1, cueEnd - newStart);
-                  updateTimelineItem(currentAgenda.id, currentSession.id, cue.id, {
-                    startSec: newStart,
-                    durationSec: newDur,
-                  });
-                };
-
-                const handleNudgeEnd = (deltaSec: number) => {
-                  if (!currentAgenda || !currentSession) return;
-                  const newEnd = Math.max(cue.startSec + 1, Math.min(sessionDur, cueEnd + deltaSec));
-                  const newDur = newEnd - cue.startSec;
-                  updateTimelineItem(currentAgenda.id, currentSession.id, cue.id, {
-                    durationSec: newDur,
-                  });
-                };
-
-                const handleMoveRange = (deltaSec: number) => {
-                  if (!currentAgenda || !currentSession) return;
-                  const dur = cueDur;
-                  const newStart = Math.max(0, Math.min(sessionDur - dur, cue.startSec + deltaSec));
-                  updateTimelineItem(currentAgenda.id, currentSession.id, cue.id, {
-                    startSec: newStart,
-                  });
-                };
-
-                const isAudio = cue.track === "audio" || trackType === "audio";
-                const isVideo = !isAudio && (cue.mediaType === "video" || cue.track === "video" || (cue.name && /\.(mp4|mov|webm|mkv|avi)$/i.test(cue.name)));
-                const bgBorder = isAudio
-                  ? "bg-[#3D2D14] border-amber-400/30"
-                  : isVideo
-                  ? "bg-[#162744] border-blue-400/30"
-                  : "bg-[#241A3E] border-purple-400/30";
-
-                return (
-                  <View key={cue.id} className={`${bgBorder} p-2.5 rounded-[12px] border mb-2`}>
-                    {/* Top row: Name, Time, Menu button */}
-                    <TouchableOpacity
-                      activeOpacity={0.7}
-                      onPress={() => setEditingCue(cue)}
-                      onLongPress={() =>
-                        currentSession && setCueActionMenu({ cue, sessionId: currentSession.id })
-                      }
-                      className="flex-row items-center justify-between mb-2"
-                    >
-                      <View className="flex-1 mr-2">
-                        <Text className="text-white text-xs font-bold" numberOfLines={1}>
-                          {cue.name}
-                        </Text>
-                        <Text className="text-white/50 text-[10px] font-mono mt-0.5">
-                          {formatSecToHMS(cue.startSec)} → {formatSecToHMS(cueEnd)} ({cueDur}s)
-                        </Text>
-                      </View>
-                      <TouchableOpacity
-                        onPress={() =>
-                          currentSession && setCueActionMenu({ cue, sessionId: currentSession.id })
-                        }
-                        className="p-1.5 bg-white/10 rounded-[12px]"
-                      >
-                        <DotsThreeVertical size={14} color="#FFFFFF" weight="bold" />
-                      </TouchableOpacity>
-                    </TouchableOpacity>
-
-                    {/* Interactive Timeline Range & Edge Handles */}
-                    <View className="bg-black/30 p-1 rounded-[12px] flex-row items-center justify-between border border-white/5">
-                      {/* Left Edge Handle (Start Boundary) */}
-                      <View className="flex-row items-center gap-1">
-                        <TouchableOpacity
-                          onPress={() => handleNudgeStart(-5)}
-                          className="px-1.5 py-1 bg-white/10 rounded-[12px]"
-                        >
-                          <Text className="text-white/70 text-[9px] font-bold">◀-5s</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                          onPress={() => handleNudgeStart(5)}
-                          className="px-1.5 py-1 bg-white/10 rounded-[12px]"
-                        >
-                          <Text className="text-white/70 text-[9px] font-bold">+5s▶</Text>
-                        </TouchableOpacity>
-                      </View>
-
-                      {/* Move Body (Shift Range) */}
-                      <View className="flex-row items-center gap-1">
-                        <TouchableOpacity
-                          onPress={() => handleMoveRange(-5)}
-                          className="px-2 py-1 bg-purple-500/20 rounded-[12px] border border-purple-500/30"
-                        >
-                          <Text className="text-purple-300 text-[9px] font-bold">◄ Move</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                          onPress={() => handleMoveRange(5)}
-                          className="px-2 py-1 bg-purple-500/20 rounded-[12px] border border-purple-500/30"
-                        >
-                          <Text className="text-purple-300 text-[9px] font-bold">Move ►</Text>
-                        </TouchableOpacity>
-                      </View>
-
-                      {/* Right Edge Handle (End Boundary) */}
-                      <View className="flex-row items-center gap-1">
-                        <TouchableOpacity
-                          onPress={() => handleNudgeEnd(-5)}
-                          className="px-1.5 py-1 bg-white/10 rounded-[12px]"
-                        >
-                          <Text className="text-white/70 text-[9px] font-bold">◀-5s</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                          onPress={() => handleNudgeEnd(5)}
-                          className="px-1.5 py-1 bg-white/10 rounded-[12px]"
-                        >
-                          <Text className="text-white/70 text-[9px] font-bold">+5s▶</Text>
-                        </TouchableOpacity>
-                      </View>
-                    </View>
-                  </View>
-                );
-              };
-
-              return (
-                <View className="space-y-3">
-                  {/* Single Unified Cue Track */}
-                  <View className="bg-white/5 p-3 rounded-[12px] border border-purple-500/20">
-                    <View className="flex-row items-center justify-between mb-2">
-                      <View className="flex-row items-center gap-1.5">
-                        <ImageIcon size={14} color="#C084FC" />
-                        <FilmSlate size={14} color="#60A5FA" />
-                        <SpeakerHigh size={14} color="#FBBF24" />
-                        <Text className="text-purple-300 font-bold text-xs uppercase">
-                          Cue Track (Media & Audio)
-                        </Text>
-                      </View>
-                      <View className="flex-row items-center gap-1.5">
-                        <TouchableOpacity
-                          onPress={() => handlePickMedia("visual", "image")}
-                          className="px-2 py-0.5 bg-purple-500/20 rounded-[12px] border border-purple-500/40"
-                        >
-                          <Text className="text-purple-200 text-[10px] font-bold">+ Image</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                          onPress={() => handlePickMedia("visual", "video")}
-                          className="px-2 py-0.5 bg-blue-500/20 rounded-[12px] border border-blue-500/40"
-                        >
-                          <Text className="text-blue-200 text-[10px] font-bold">+ Video</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                          onPress={() => handlePickMedia("audio")}
-                          className="px-2 py-0.5 bg-amber-500/20 rounded-[12px] border border-amber-500/40"
-                        >
-                          <Text className="text-amber-200 text-[10px] font-bold">+ Audio</Text>
-                        </TouchableOpacity>
-                      </View>
-                    </View>
-
-                    {/* Stacked Sub-Lanes */}
-                    {/* Visual Cues */}
-                    <View className="mb-2">
-                      <Text className="text-white/40 text-[9px] uppercase font-bold mb-1">Visual Cues</Text>
-                      {(currentSession.timelineItems || [])
-                        .filter((i) => i.track === "visual" || i.track === "background" || i.track === "video" || i.track === "image" || (i.track === "media" && i.mediaType !== "audio"))
-                        .map((cue) => renderCueItem(cue, "visual"))}
-                    </View>
-
-                    {/* Audio Cues */}
-                    <View>
-                      <Text className="text-white/40 text-[9px] uppercase font-bold mb-1">Audio Cues</Text>
-                      {(currentSession.timelineItems || [])
-                        .filter((i) => i.track === "audio" || (i.track === "media" && i.mediaType === "audio"))
-                        .map((cue) => renderCueItem(cue, "audio"))}
-                    </View>
-                  </View>
+    return (
+      <>
+        {renderMediaCues()}
+        <Modal visible animationType="slide" transparent onRequestClose={popView}>
+          <View style={S.sheetOverlay}>
+            <View style={S.editorSheet}>
+              <View style={S.sheetHandle} />
+              <View style={{ flexDirection: "row", alignItems: "flex-start", marginBottom: 16 }}>
+                <View style={{ flex: 1 }}>
+                  <Text style={S.editorTitle}>Edit Cue</Text>
+                  <Text style={S.editorSub} numberOfLines={1}>{editingCue.name}</Text>
                 </View>
-              );
-            })()}
-          </View>
-        )}
-      </ScrollView>
+                <TouchableOpacity onPress={popView} style={S.closeBtn}>
+                  <X size={16} color="#FFF" weight="bold" />
+                </TouchableOpacity>
+              </View>
 
-      {/* Cue Inspector Modal Drawer */}
-      <Modal visible={!!editingCue} transparent animationType="slide">
-        <View className="flex-1 justify-end bg-black/70">
-          <View className="bg-[#1A132E] p-5 rounded-t-[12px] border-t border-white/20">
-            <View className="flex-row items-center justify-between mb-4">
-              <Text className="text-white font-bold text-base">Edit Timeline Cue</Text>
-              <TouchableOpacity
-                onPress={() => setEditingCue(null)}
-                className="p-1.5 bg-white/10 rounded-[12px]"
-              >
-                <X size={16} color="#FFFFFF" />
-              </TouchableOpacity>
-            </View>
+              <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+                <Text style={S.fieldLabel}>Cue Title</Text>
+                <TextInput
+                  value={editingCue.name}
+                  onChangeText={(v) => { const u = { ...editingCue, name: v }; setEditingCue(u); updateTimelineItem(currentAgenda.id, sessId, editingCue.id, { name: v }); }}
+                  style={S.fieldInput}
+                  placeholderTextColor="rgba(255,255,255,0.3)"
+                />
 
-            {editingCue && currentAgenda && currentSession && (
-              <View className="space-y-3">
-                <View>
-                  <Text className="text-white/40 text-[10px] uppercase font-bold mb-1">
-                    Cue Title
-                  </Text>
-                  <TextInput
-                    value={editingCue.name}
-                    onChangeText={(val) => {
-                      setEditingCue({ ...editingCue, name: val });
-                      updateTimelineItem(currentAgenda.id, currentSession.id, editingCue.id, {
-                        name: val,
-                      });
-                    }}
-                    className="text-white font-semibold text-sm bg-white/5 p-2 rounded-[12px] border border-white/10"
-                  />
-                </View>
-
-                <View className="flex-row gap-3">
-                  <View className="flex-1">
-                    <Text className="text-white/40 text-[10px] uppercase font-bold mb-1">
-                      Start Time (Sec)
-                    </Text>
+                <View style={{ flexDirection: "row", gap: 10 }}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={S.fieldLabel}>Start (sec)</Text>
                     <TextInput
                       keyboardType="numeric"
                       value={String(editingCue.startSec)}
-                      onChangeText={(val) => {
-                        const currentEnd = editingCue.startSec + (editingCue.durationSec || 60);
-                        const s = Math.max(0, Math.min(currentEnd - 1, parseInt(val, 10) || 0));
-                        const d = Math.max(1, currentEnd - s);
-                        setEditingCue({ ...editingCue, startSec: s, durationSec: d });
-                        updateTimelineItem(
-                          currentAgenda.id,
-                          currentSession.id,
-                          editingCue.id,
-                          { startSec: s, durationSec: d }
-                        );
+                      onChangeText={(v) => {
+                        const end2 = editingCue.startSec + (editingCue.durationSec || 60);
+                        const s2 = Math.max(0, Math.min(end2 - 1, parseInt(v, 10) || 0));
+                        const d2 = Math.max(1, end2 - s2);
+                        setEditingCue({ ...editingCue, startSec: s2, durationSec: d2 });
+                        updateTimelineItem(currentAgenda.id, sessId, editingCue.id, { startSec: s2, durationSec: d2 });
                       }}
-                      className="text-white font-semibold text-sm bg-white/5 p-2 rounded-[12px] border border-white/10"
+                      style={S.fieldInput}
                     />
                   </View>
-
-                  <View className="flex-1">
-                    <Text className="text-white/40 text-[10px] uppercase font-bold mb-1">
-                      End Time (Sec)
-                    </Text>
+                  <View style={{ flex: 1 }}>
+                    <Text style={S.fieldLabel}>End (sec)</Text>
                     <TextInput
                       keyboardType="numeric"
-                      value={String(editingCue.startSec + (editingCue.durationSec || 60))}
-                      onChangeText={(val) => {
-                        const targetEnd = parseInt(val, 10) || (editingCue.startSec + 1);
-                        const maxSessSec = currentSession.durationSec || 3600;
-                        const clampedEnd = Math.max(editingCue.startSec + 1, Math.min(maxSessSec, targetEnd));
-                        const d = clampedEnd - editingCue.startSec;
-                        setEditingCue({ ...editingCue, durationSec: d });
-                        updateTimelineItem(
-                          currentAgenda.id,
-                          currentSession.id,
-                          editingCue.id,
-                          { durationSec: d }
-                        );
+                      value={String(cueEnd)}
+                      onChangeText={(v) => {
+                        const te = parseInt(v, 10) || (editingCue.startSec + 1);
+                        const ce = Math.max(editingCue.startSec + 1, Math.min(session.durationSec || 3600, te));
+                        const d2 = ce - editingCue.startSec;
+                        setEditingCue({ ...editingCue, durationSec: d2 });
+                        updateTimelineItem(currentAgenda.id, sessId, editingCue.id, { durationSec: d2 });
                       }}
-                      className="text-white font-semibold text-sm bg-white/5 p-2 rounded-[12px] border border-white/10"
+                      style={S.fieldInput}
                     />
                   </View>
                 </View>
 
-                <View className="flex-row justify-between items-center px-1">
-                  <Text className="text-white/40 text-[10px] uppercase font-bold">
-                    Derived Duration
-                  </Text>
-                  <Text className="text-[#A788FA] text-xs font-mono font-bold">
-                    {formatSecToHMS(editingCue.durationSec || 60)} ({editingCue.durationSec || 60}s)
-                  </Text>
+                <View style={{ flexDirection: "row", justifyContent: "space-between", paddingHorizontal: 2, marginTop: 8, marginBottom: 2 }}>
+                  <Text style={S.durationLabel}>Duration</Text>
+                  <Text style={S.durationValue}>{formatSecToHMS(cueDur)}</Text>
                 </View>
 
-                {/* Destination Selector */}
-                <View>
-                  <Text className="text-white/40 text-[10px] uppercase font-bold mb-1">
-                    Output Destination
-                  </Text>
-                  <View className="flex-row gap-2">
-                    {(["all", "general", "speaker"] as const).map((dest) => (
-                      <TouchableOpacity
-                        key={dest}
-                        onPress={() => {
-                          setEditingCue({ ...editingCue, destination: dest });
-                          updateTimelineItem(
-                            currentAgenda.id,
-                            currentSession.id,
-                            editingCue.id,
-                            { destination: dest }
-                          );
-                        }}
-                        className={`flex-1 py-2 rounded-[12px] border items-center ${
-                          (editingCue.destination || "all") === dest
-                            ? "bg-[#7C3AED] border-[#7C3AED]"
-                            : "bg-white/5 border-white/10"
-                        }`}
-                      >
-                        <Text className="text-white text-xs font-bold capitalize">
-                          {dest === "all" ? "All Screens" : dest}
-                        </Text>
-                      </TouchableOpacity>
-                    ))}
+                <Text style={S.fieldLabel}>Adjust Timing</Text>
+                <View style={{ flexDirection: "row", gap: 10 }}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={S.nudgeLabel}>Start boundary</Text>
+                    <View style={{ flexDirection: "row", gap: 6 }}>
+                      <TouchableOpacity onPress={() => nudgeStart(-5)} style={S.nudgeBtn}><Text style={S.nudgeText}>-5s</Text></TouchableOpacity>
+                      <TouchableOpacity onPress={() => nudgeStart(5)} style={S.nudgeBtn}><Text style={S.nudgeText}>+5s</Text></TouchableOpacity>
+                    </View>
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={S.nudgeLabel}>End boundary</Text>
+                    <View style={{ flexDirection: "row", gap: 6 }}>
+                      <TouchableOpacity onPress={() => nudgeEnd(-5)} style={S.nudgeBtn}><Text style={S.nudgeText}>-5s</Text></TouchableOpacity>
+                      <TouchableOpacity onPress={() => nudgeEnd(5)} style={S.nudgeBtn}><Text style={S.nudgeText}>+5s</Text></TouchableOpacity>
+                    </View>
                   </View>
                 </View>
 
-                {/* End Behavior */}
-                <View>
-                  <Text className="text-white/40 text-[10px] uppercase font-bold mb-1">
-                    When Media Ends
-                  </Text>
-                  <View className="flex-row gap-2">
-                    {(["hold", "restore", "continue"] as const).map((beh) => (
-                      <TouchableOpacity
-                        key={beh}
-                        onPress={() => {
-                          setEditingCue({ ...editingCue, endBehavior: beh });
-                          updateTimelineItem(
-                            currentAgenda.id,
-                            currentSession.id,
-                            editingCue.id,
-                            { endBehavior: beh }
-                          );
-                        }}
-                        className={`flex-1 py-2 rounded-[12px] border items-center ${
-                          (editingCue.endBehavior || "hold") === beh
-                            ? "bg-purple-600 border-purple-600"
-                            : "bg-white/5 border-white/10"
-                        }`}
-                      >
-                        <Text className="text-white text-xs font-bold capitalize">
-                          {beh}
-                        </Text>
-                      </TouchableOpacity>
-                    ))}
-                  </View>
+                <Text style={S.fieldLabel}>Output Destination</Text>
+                <View style={{ flexDirection: "row", gap: 6 }}>
+                  {(["all", "general", "speaker"] as const).map((d) => (
+                    <TouchableOpacity
+                      key={d}
+                      onPress={() => { setEditingCue({ ...editingCue, destination: d }); updateTimelineItem(currentAgenda.id, sessId, editingCue.id, { destination: d }); }}
+                      style={[(editingCue.destination || "all") === d ? S.segActive : S.segInactive]}
+                    >
+                      <Text style={(editingCue.destination || "all") === d ? S.segTextActive : S.segTextInactive}>
+                        {d === "all" ? "All" : d === "general" ? "General" : "Speaker"}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+
+                <Text style={S.fieldLabel}>When Media Ends</Text>
+                <View style={{ flexDirection: "row", gap: 6 }}>
+                  {(["hold", "restore", "continue"] as const).map((b) => (
+                    <TouchableOpacity
+                      key={b}
+                      onPress={() => { setEditingCue({ ...editingCue, endBehavior: b }); updateTimelineItem(currentAgenda.id, sessId, editingCue.id, { endBehavior: b }); }}
+                      style={[(editingCue.endBehavior || "hold") === b ? S.segActive : S.segInactive]}
+                    >
+                      <Text style={(editingCue.endBehavior || "hold") === b ? S.segTextActive : S.segTextInactive}>
+                        {b === "hold" ? "Hold" : b === "restore" ? "Restore" : "Continue"}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
                 </View>
 
                 <TouchableOpacity
-                  onPress={() => setEditingCue(null)}
-                  className="w-full py-2.5 bg-[#7C3AED] rounded-[12px] items-center mt-2"
+                  onPress={() => { const t = getCueType(editingCue); handlePickMedia(t === "audio" ? "audio" : t === "video" ? "video" : "visual", t === "video" ? "video" : undefined, sessId); }}
+                  style={S.secondaryBtn}
                 >
-                  <Text className="text-white font-bold text-xs uppercase tracking-wider">Done</Text>
+                  <Text style={S.secondaryBtnText}>Replace Media</Text>
                 </TouchableOpacity>
-              </View>
-            )}
+
+                <TouchableOpacity
+                  onPress={() => Alert.alert("Delete Cue", `Delete "${editingCue.name}"?`, [
+                    { text: "Cancel", style: "cancel" },
+                    { text: "Delete", style: "destructive", onPress: () => { handleDeleteCueWithUndo(editingCue, sessId); popView(); } },
+                  ])}
+                  style={S.deleteBtn}
+                >
+                  <Trash size={15} color="#EF4444" weight="bold" />
+                  <Text style={S.deleteBtnText}>Delete Cue</Text>
+                </TouchableOpacity>
+              </ScrollView>
+            </View>
           </View>
-        </View>
+        </Modal>
+      </>
+    );
+  };
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // ROOT RENDER
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  return (
+    <SafeAreaView style={S.root} edges={["top"]}>
+      <Stack.Screen options={{ headerShown: false }} />
+
+      {currentView === "overview" && renderOverview()}
+      {currentView === "session" && renderSessionEditor()}
+      {currentView === "cues" && renderMediaCues()}
+      {currentView === "cue_editor" && renderCueEditor()}
+
+      {/* ── Session field edit modal ──────────────────────────────────────────── */}
+      <Modal visible={!!editingField} transparent animationType="fade" onRequestClose={() => setEditingField(null)}>
+        <Pressable style={S.modalBg} onPress={Keyboard.dismiss}>
+          <View style={S.modalCard}>
+            <Text style={S.modalTitle}>
+              {editingField?.field === "durationSec" ? "Duration (seconds)"
+                : editingField?.field === "intervalSec" ? "Interval (seconds)"
+                : editingField?.field === "person" ? "Presenter"
+                : editingField?.field === "notes" ? "Session Notes"
+                : "Rename Session"}
+            </Text>
+            <TextInput
+              value={editingField?.value || ""}
+              onChangeText={(v) => editingField && setEditingField({ ...editingField, value: v })}
+              style={[S.fieldInput, editingField?.field === "notes" && { height: 80, textAlignVertical: "top" }, { marginBottom: 14 }]}
+              keyboardType={editingField?.field === "durationSec" || editingField?.field === "intervalSec" ? "numeric" : "default"}
+              multiline={editingField?.field === "notes"}
+              autoFocus
+              placeholderTextColor="rgba(255,255,255,0.3)"
+            />
+            <View style={{ flexDirection: "row", gap: 10 }}>
+              <TouchableOpacity onPress={() => setEditingField(null)} style={S.cancelBtn}>
+                <Text style={S.cancelBtnText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={commitFieldEdit} style={S.saveBtn}>
+                <Text style={S.saveBtnText}>Save</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Pressable>
       </Modal>
 
-      {/* ── Mobile Cue Action Modal Sheet ─────────────────────────────────── */}
-      <Modal visible={!!cueActionMenu} transparent animationType="fade">
-        <TouchableOpacity
-          activeOpacity={1}
-          onPress={() => setCueActionMenu(null)}
-          className="flex-1 justify-end bg-black/70"
-        >
-          <View
-            className="bg-[#1A132E] p-5 rounded-t-[12px] border-t border-white/20"
-            onStartShouldSetResponder={() => true}
-          >
-            <View className="flex-row items-center justify-between mb-4">
-              <View className="flex-1 mr-2">
-                <Text className="text-white font-bold text-base" numberOfLines={1}>
-                  {cueActionMenu?.cue.name || "Cue Actions"}
-                </Text>
-                <Text className="text-white/40 text-xs">
-                  At {formatSecToHMS(cueActionMenu?.cue.startSec || 0)} • {cueActionMenu?.cue.track}
-                </Text>
-              </View>
-              <TouchableOpacity
-                onPress={() => setCueActionMenu(null)}
-                className="p-1.5 bg-white/10 rounded-[12px]"
-              >
-                <X size={16} color="#FFFFFF" />
-              </TouchableOpacity>
-            </View>
-
-            <View className="space-y-2">
-              <TouchableOpacity
-                onPress={() => {
-                  if (!cueActionMenu) return;
-                  const target = cueActionMenu.cue;
-                  setCueActionMenu(null);
-                  setEditingCue(target);
-                }}
-                className="flex-row items-center gap-3 p-3 bg-white/5 rounded-[12px] border border-white/10"
-              >
-                <PencilSimple size={18} color="#A78BFA" />
-                <View>
-                  <Text className="text-white font-bold text-sm">Edit Cue</Text>
-                  <Text className="text-white/40 text-[10px]">Open full scheduling & destination inspector</Text>
+      {/* ── Add Cue sheet ───────────────────────────────────────────────────── */}
+      <Modal visible={addCueSheetOpen} transparent animationType="slide" onRequestClose={() => setAddCueSheetOpen(false)}>
+        <TouchableOpacity activeOpacity={1} style={S.sheetOverlay} onPress={() => setAddCueSheetOpen(false)}>
+          <View style={S.sheet} onStartShouldSetResponder={() => true}>
+            <View style={S.sheetHandle} />
+            <Text style={S.sheetTitle}>Add Media Cue</Text>
+            <Text style={S.sheetSub}>Choose type of media for this session</Text>
+            {[
+              { label: "Image", sub: "PNG, JPG, WebP", icon: <ImageIcon size={20} color="#C084FC" weight="fill" />, bg: "rgba(192,132,252,0.1)", onPress: () => { setAddCueSheetOpen(false); handlePickMedia("visual", "image"); } },
+              { label: "Video", sub: "MP4, MOV, WebM", icon: <FilmSlate size={20} color="#60A5FA" weight="fill" />, bg: "rgba(96,165,250,0.1)", onPress: () => { setAddCueSheetOpen(false); handlePickMedia("video", "video"); } },
+              { label: "Audio", sub: "MP3, AAC, WAV", icon: <SpeakerHigh size={20} color="#FBBF24" weight="fill" />, bg: "rgba(251,191,36,0.1)", onPress: () => { setAddCueSheetOpen(false); handlePickMedia("audio"); } },
+            ].map((item) => (
+              <TouchableOpacity key={item.label} onPress={item.onPress} style={S.sheetOption} activeOpacity={0.75}>
+                <View style={[S.sheetOptionIcon, { backgroundColor: item.bg }]}>{item.icon}</View>
+                <View style={{ flex: 1 }}>
+                  <Text style={S.sheetOptionLabel}>{item.label}</Text>
+                  <Text style={S.sheetOptionSub}>{item.sub}</Text>
                 </View>
+                <CaretRight size={14} color="rgba(255,255,255,0.22)" weight="bold" />
               </TouchableOpacity>
-
-              <TouchableOpacity
-                onPress={() => {
-                  if (!cueActionMenu) return;
-                  const target = cueActionMenu;
-                  setCueActionMenu(null);
-                  setRenamingCue({
-                    cueId: target.cue.id,
-                    name: target.cue.name,
-                    sessionId: target.sessionId,
-                  });
-                }}
-                className="flex-row items-center gap-3 p-3 bg-white/5 rounded-[12px] border border-white/10"
-              >
-                <PencilSimple size={18} color="#60A5FA" />
-                <View>
-                  <Text className="text-white font-bold text-sm">Rename Cue</Text>
-                  <Text className="text-white/40 text-[10px]">Change display name without modifying media</Text>
-                </View>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                onPress={() => {
-                  if (!cueActionMenu) return;
-                  const { cue, sessionId } = cueActionMenu;
-                  setCueActionMenu(null);
-                  handleDeleteCueWithUndo(cue, sessionId);
-                }}
-                className="flex-row items-center gap-3 p-3 bg-red-500/10 rounded-[12px] border border-red-500/20"
-              >
-                <Trash size={18} color="#EF4444" />
-                <View>
-                  <Text className="text-red-400 font-bold text-sm">Delete Cue</Text>
-                  <Text className="text-red-400/60 text-[10px]">Remove cue from schedule with undo</Text>
-                </View>
-              </TouchableOpacity>
-            </View>
+            ))}
           </View>
         </TouchableOpacity>
       </Modal>
 
-      {/* ── Cue Rename Modal ──────────────────────────────────────────────── */}
-      <Modal visible={!!renamingCue} transparent animationType="fade">
-        <View className="flex-1 items-center justify-center bg-black/80 px-6">
-          <View className="w-full bg-[#17112B] p-5 rounded-[12px] border border-white/20">
-            <Text className="text-white font-bold text-base mb-1">Rename Cue</Text>
-            <Text className="text-white/50 text-xs mb-3">
-              Update cue display name for this agenda.
-            </Text>
+      {/* ── Cue action sheet ────────────────────────────────────────────────── */}
+      <Modal visible={!!cueActionMenu} transparent animationType="fade" onRequestClose={() => setCueActionMenu(null)}>
+        <TouchableOpacity activeOpacity={1} style={S.sheetOverlay} onPress={() => setCueActionMenu(null)}>
+          <View style={S.sheet} onStartShouldSetResponder={() => true}>
+            <View style={S.sheetHandle} />
+            <Text style={S.sheetTitle} numberOfLines={1}>{cueActionMenu?.cue.name || "Cue"}</Text>
+            <Text style={S.sheetSub}>At {formatTimestamp(cueActionMenu?.cue.startSec || 0)} · {cueActionMenu?.cue.track}</Text>
+
+            {[
+              { label: "Edit Cue", sub: "Open cue inspector", icon: <PencilSimple size={18} color="#A78BFA" />, bg: "rgba(167,139,250,0.1)", onPress: () => { if (!cueActionMenu) return; const t = cueActionMenu; setCueActionMenu(null); setEditingCue(t.cue); setCueSessionId(t.sessionId); pushView("cue_editor"); } },
+              { label: "Rename", sub: "Change display name", icon: <PencilSimple size={18} color="#60A5FA" />, bg: "rgba(96,165,250,0.1)", onPress: () => { if (!cueActionMenu) return; const t = cueActionMenu; setCueActionMenu(null); setRenamingCue({ cueId: t.cue.id, name: t.cue.name, sessionId: t.sessionId }); } },
+              { label: "Duplicate", sub: "Add a copy", icon: <Copy size={18} color="#FFF" />, bg: "rgba(255,255,255,0.05)", onPress: () => { if (!cueActionMenu || !currentAgenda) return; duplicateTimelineItem(currentAgenda.id, cueActionMenu.sessionId, cueActionMenu.cue.id); setCueActionMenu(null); } },
+            ].map((item) => (
+              <TouchableOpacity key={item.label} onPress={item.onPress} style={S.sheetOption} activeOpacity={0.75}>
+                <View style={[S.sheetOptionIcon, { backgroundColor: item.bg }]}>{item.icon}</View>
+                <View style={{ flex: 1 }}>
+                  <Text style={S.sheetOptionLabel}>{item.label}</Text>
+                  <Text style={S.sheetOptionSub}>{item.sub}</Text>
+                </View>
+              </TouchableOpacity>
+            ))}
+
+            <TouchableOpacity
+              onPress={() => { if (!cueActionMenu) return; const { cue, sessionId } = cueActionMenu; setCueActionMenu(null); handleDeleteCueWithUndo(cue, sessionId); }}
+              style={[S.sheetOption, { borderTopColor: "rgba(239,68,68,0.1)" }]}
+            >
+              <View style={[S.sheetOptionIcon, { backgroundColor: "rgba(239,68,68,0.1)" }]}><Trash size={18} color="#EF4444" /></View>
+              <View style={{ flex: 1 }}>
+                <Text style={[S.sheetOptionLabel, { color: "#F87171" }]}>Delete Cue</Text>
+                <Text style={S.sheetOptionSub}>Remove with undo</Text>
+              </View>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* ── Session action sheet ────────────────────────────────────────────── */}
+      <Modal visible={!!sessionActionMenu} transparent animationType="fade" onRequestClose={() => setSessionActionMenu(null)}>
+        <TouchableOpacity activeOpacity={1} style={S.sheetOverlay} onPress={() => setSessionActionMenu(null)}>
+          <View style={S.sheet} onStartShouldSetResponder={() => true}>
+            <View style={S.sheetHandle} />
+            <Text style={S.sheetTitle} numberOfLines={1}>{sessionActionMenu?.name || "Session"}</Text>
+            <TouchableOpacity onPress={() => { if (!sessionActionMenu) return; setSessionActionMenu(null); setEditingField({ field: "name", value: sessionActionMenu.name }); }} style={S.sheetOption} activeOpacity={0.75}>
+              <View style={[S.sheetOptionIcon, { backgroundColor: "rgba(167,139,250,0.1)" }]}><PencilSimple size={18} color="#A78BFA" /></View>
+              <Text style={S.sheetOptionLabel}>Rename Session</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => {
+              if (!sessionActionMenu || !currentAgenda) return;
+              const t = sessionActionMenu;
+              setSessionActionMenu(null);
+              Alert.alert("Delete Session", `Delete "${t.name}"?`, [
+                { text: "Cancel", style: "cancel" },
+                { text: "Delete", style: "destructive", onPress: () => { deleteSession(currentAgenda.id, t.id); popView(); } },
+              ]);
+            }} style={S.sheetOption} activeOpacity={0.75}>
+              <View style={[S.sheetOptionIcon, { backgroundColor: "rgba(239,68,68,0.1)" }]}><Trash size={18} color="#EF4444" /></View>
+              <Text style={[S.sheetOptionLabel, { color: "#F87171" }]}>Delete Session</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* ── Rename Cue modal ────────────────────────────────────────────────── */}
+      <Modal visible={!!renamingCue} transparent animationType="fade" onRequestClose={() => setRenamingCue(null)}>
+        <View style={S.modalBg}>
+          <View style={S.modalCard}>
+            <Text style={S.modalTitle}>Rename Cue</Text>
             <TextInput
               value={renamingCue?.name || ""}
-              onChangeText={(val) => renamingCue && setRenamingCue({ ...renamingCue, name: val })}
+              onChangeText={(v) => renamingCue && setRenamingCue({ ...renamingCue, name: v })}
+              style={[S.fieldInput, { marginBottom: 14 }]}
               placeholder="Cue Name"
               placeholderTextColor="rgba(255,255,255,0.3)"
-              className="bg-white/5 px-3 py-2.5 rounded-[12px] border border-white/10 text-white font-bold text-sm mb-4"
               autoFocus
             />
-            <View className="flex-row justify-end gap-2">
-              <TouchableOpacity
-                onPress={() => setRenamingCue(null)}
-                className="px-4 py-2 bg-white/5 rounded-[12px]"
-              >
-                <Text className="text-white font-bold text-xs">Cancel</Text>
+            <View style={{ flexDirection: "row", gap: 10 }}>
+              <TouchableOpacity onPress={() => setRenamingCue(null)} style={S.cancelBtn}>
+                <Text style={S.cancelBtnText}>Cancel</Text>
               </TouchableOpacity>
-              <TouchableOpacity
-                onPress={() => {
-                  if (renamingCue && renamingCue.name.trim() && currentAgenda) {
-                    updateTimelineItem(currentAgenda.id, renamingCue.sessionId, renamingCue.cueId, {
-                      name: renamingCue.name.trim(),
-                    });
-                  }
-                  setRenamingCue(null);
-                }}
-                className="px-4 py-2 bg-[#7C3AED] rounded-[12px]"
-              >
-                <Text className="text-white font-bold text-xs">Save</Text>
+              <TouchableOpacity onPress={() => {
+                if (renamingCue?.name.trim() && currentAgenda) {
+                  updateTimelineItem(currentAgenda.id, renamingCue.sessionId, renamingCue.cueId, { name: renamingCue.name.trim() });
+                }
+                setRenamingCue(null);
+              }} style={S.saveBtn}>
+                <Text style={S.saveBtnText}>Save</Text>
               </TouchableOpacity>
             </View>
           </View>
         </View>
       </Modal>
 
-      {/* ── Mobile Deleted Cue Undo Banner ─────────────────────────────────── */}
+      {/* ── Undo delete banner ──────────────────────────────────────────────── */}
       {deletedCueUndo && (
-        <View className="absolute bottom-6 left-4 right-4 z-50 flex-row items-center justify-between bg-[#1E1538] p-3.5 rounded-[12px] border border-white/20 shadow-2xl">
-          <Text className="text-white text-xs flex-1 mr-2" numberOfLines={1}>
-            Cue <Text className="font-bold">&ldquo;{deletedCueUndo.cue.name}&rdquo;</Text> deleted
+        <View style={[S.undoBanner, { bottom: insets.bottom + 12 }]}>
+          <Text style={S.undoBannerText} numberOfLines={1}>
+            Cue <Text style={{ fontWeight: "700" }}>"{deletedCueUndo.cue.name}"</Text> deleted
           </Text>
-          <View className="flex-row items-center gap-2">
-            <TouchableOpacity
-              onPress={handleUndoDeleteCue}
-              className="px-3 py-1.5 bg-[#7C3AED] rounded-[12px]"
-            >
-              <Text className="text-white text-xs font-bold uppercase tracking-wider">Undo</Text>
+          <View style={{ flexDirection: "row", gap: 8, alignItems: "center" }}>
+            <TouchableOpacity onPress={handleUndoDeleteCue} style={S.undoBtn2}>
+              <Text style={S.undoBtnText}>Undo</Text>
             </TouchableOpacity>
-            <TouchableOpacity
-              onPress={() => {
-                if (deletedCueUndo.timeoutId) clearTimeout(deletedCueUndo.timeoutId);
-                setDeletedCueUndo(null);
-              }}
-              className="p-1.5 bg-white/5 rounded-[12px]"
-            >
-              <X size={12} color="#FFFFFF" />
+            <TouchableOpacity onPress={() => { if (deletedCueUndo.timeoutId) clearTimeout(deletedCueUndo.timeoutId); setDeletedCueUndo(null); }} style={S.undoDismiss}>
+              <X size={11} color="#FFF" />
             </TouchableOpacity>
           </View>
         </View>
       )}
 
-      {/* Transfer Progress Overlay */}
+      {/* ── Transfer progress overlay ────────────────────────────────────────── */}
       <Modal visible={transfer.transferring} transparent animationType="fade">
-        <View className="flex-1 items-center justify-center bg-black/80 px-6">
-          <View className="w-full bg-[#1A132E] p-6 rounded-[12px] border border-purple-500/40 items-center">
-            <ActivityIndicator size="large" color="#A78BFA" className="mb-4" />
-            <Text className="text-white font-bold text-base mb-1">
-              Sending to Desktop Controller
-            </Text>
-            <Text className="text-white/60 text-xs text-center mb-4">
-              {transfer.status}
-            </Text>
-
-            <View className="w-full bg-white/10 h-2 rounded-[12px] overflow-hidden mb-3">
-              <View
-                className="bg-[#7C3AED] h-full"
-                style={{ width: `${transfer.progress}%` }}
-              />
-            </View>
-            <Text className="text-white/40 text-xs font-bold mb-4">
-              {transfer.progress}%
-            </Text>
-
-            <TouchableOpacity
-              onPress={cancelTransfer}
-              className="px-4 py-2 bg-red-500/20 rounded-[12px] border border-red-500/40"
-            >
-              <Text className="text-red-300 font-bold text-xs">Cancel Transfer</Text>
+        <View style={S.overlay}>
+          <View style={S.overlayCard}>
+            <ActivityIndicator size="large" color="#A78BFA" style={{ marginBottom: 16 }} />
+            <Text style={S.overlayTitle}>Sending to Desktop</Text>
+            <Text style={S.overlaySub}>{transfer.status}</Text>
+            <View style={S.progressBar}><View style={[S.progressFill, { width: `${transfer.progress}%` as any }]} /></View>
+            <Text style={S.progressPct}>{transfer.progress}%</Text>
+            <TouchableOpacity onPress={cancelTransfer} style={S.cancelTransferBtn}>
+              <Text style={S.cancelTransferText}>Cancel Transfer</Text>
             </TouchableOpacity>
           </View>
         </View>
       </Modal>
 
-      {/* Agenda Switcher / Picker Modal */}
-      <Modal visible={isAgendaPickerOpen} transparent animationType="fade">
-        <View className="flex-1 justify-center items-center bg-black/80 px-6">
-          <View className="w-full bg-[#17112B] p-5 rounded-[12px] border border-white/20 max-h-[80%]">
-            <View className="flex-row items-center justify-between mb-4">
-              <Text className="text-white font-bold text-base">Select Agenda</Text>
-              <TouchableOpacity
-                onPress={() => {
-                  setIsAgendaPickerOpen(false);
-                  setIsAddingAgenda(false);
-                }}
-                className="p-1.5 bg-white/5 rounded-[12px]"
-              >
-                <X size={16} color="#FFFFFF" />
+      {/* ── Agenda switcher modal ─────────────────────────────────────────────── */}
+      <Modal visible={isAgendaPickerOpen} transparent animationType="fade" onRequestClose={() => setIsAgendaPickerOpen(false)}>
+        <View style={S.overlay}>
+          <View style={[S.modalCard, { maxHeight: "78%" }]}>
+            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+              <Text style={S.modalTitle}>Select Agenda</Text>
+              <TouchableOpacity onPress={() => { setIsAgendaPickerOpen(false); setIsAddingAgenda(false); }} style={S.closeBtn}>
+                <X size={16} color="#FFF" />
               </TouchableOpacity>
             </View>
-
-            <ScrollView className="max-h-[280px] mb-4">
+            <ScrollView style={{ maxHeight: 260, marginBottom: 12 }}>
               {agendas.map((a) => (
                 <TouchableOpacity
                   key={a.id}
-                  onPress={() => {
-                    setActiveAgendaId(a.id);
-                    setIsAgendaPickerOpen(false);
-                  }}
-                  className={`p-3 rounded-[12px] border mb-2 flex-row items-center justify-between ${
-                    a.id === currentAgenda?.id
-                      ? "bg-[#7C3AED]/20 border-[#7C3AED]"
-                      : "bg-white/5 border-white/5"
-                  }`}
+                  onPress={() => { setActiveAgendaId(a.id); setIsAgendaPickerOpen(false); }}
+                  style={[S.agendaRow, a.id === currentAgenda?.id && S.agendaRowActive]}
                 >
-                  <View className="flex-1 mr-2">
-                    <Text className="text-white font-bold text-sm" numberOfLines={1}>
-                      {a.name}
-                    </Text>
-                    <Text className="text-white/40 text-xs mt-0.5">
-                      {a.sessions.length} sessions
-                    </Text>
+                  <View style={{ flex: 1 }}>
+                    <Text style={S.agendaRowName} numberOfLines={1}>{a.name}</Text>
+                    <Text style={S.agendaRowMeta}>{a.sessions.length} sessions</Text>
                   </View>
-                  <View className="flex-row items-center gap-2">
-                    <TouchableOpacity
-                      onPress={() => duplicateAgenda(a.id)}
-                      className="p-1.5 bg-white/5 rounded-[12px]"
-                    >
-                      <Copy size={12} color="#FFFFFF" />
+                  <View style={{ flexDirection: "row", gap: 8 }}>
+                    <TouchableOpacity onPress={() => duplicateAgenda(a.id)} style={S.agendaAction}>
+                      <Copy size={12} color="#FFF" />
                     </TouchableOpacity>
-                    {agendas.length > 1 && (
-                      <TouchableOpacity
-                        onPress={() => deleteAgenda(a.id)}
-                        className="p-1.5 bg-red-500/10 rounded-[12px]"
-                      >
-                        <Trash size={12} color="#EF4444" />
-                      </TouchableOpacity>
-                    )}
+                    <TouchableOpacity onPress={() => handleDeleteAgendaMobile(a)} style={S.agendaAction}>
+                      <Trash size={12} color="#EF4444" />
+                    </TouchableOpacity>
                   </View>
                 </TouchableOpacity>
               ))}
             </ScrollView>
-
             {isAddingAgenda ? (
-              <View className="flex-row gap-2">
+              <View style={{ flexDirection: "row", gap: 8 }}>
                 <TextInput
                   value={newAgendaName}
                   onChangeText={setNewAgendaName}
                   placeholder="Agenda Name"
                   placeholderTextColor="rgba(255,255,255,0.3)"
-                  className="flex-1 bg-white/5 px-3 py-2 rounded-[12px] border border-white/10 text-white font-bold text-sm"
+                  style={[S.fieldInput, { flex: 1, marginBottom: 0 }]}
+                  autoFocus
                 />
-                <TouchableOpacity
-                  onPress={async () => {
-                    if (newAgendaName.trim()) {
-                      await createAgenda(newAgendaName.trim());
-                      setNewAgendaName("");
-                      setIsAddingAgenda(false);
-                      setIsAgendaPickerOpen(false);
-                    }
-                  }}
-                  className="px-4 py-2 bg-[#7C3AED] rounded-[12px] justify-center"
-                >
-                  <Text className="text-white font-bold text-xs">Create</Text>
+                <TouchableOpacity onPress={async () => { if (newAgendaName.trim()) { await createAgenda(newAgendaName.trim()); setNewAgendaName(""); setIsAddingAgenda(false); setIsAgendaPickerOpen(false); } }} style={S.saveBtn}>
+                  <Text style={S.saveBtnText}>Create</Text>
                 </TouchableOpacity>
               </View>
             ) : (
-              <TouchableOpacity
-                onPress={() => setIsAddingAgenda(true)}
-                className="w-full py-2.5 bg-white/5 rounded-[12px] border border-white/10 items-center"
-              >
-                <Text className="text-white font-bold text-xs">+ Create New Agenda</Text>
+              <TouchableOpacity onPress={() => setIsAddingAgenda(true)} style={S.cancelBtn}>
+                <Text style={S.cancelBtnText}>+ Create New Agenda</Text>
               </TouchableOpacity>
             )}
           </View>
@@ -1141,3 +1065,146 @@ export default function MobileAgendaScreen() {
     </SafeAreaView>
   );
 }
+
+// ─── StyleSheet ───────────────────────────────────────────────────────────────
+
+const R = 12;
+
+const S = StyleSheet.create({
+  root: { flex: 1, backgroundColor: "#0D0F1A" },
+
+  // Header
+  header: { flexDirection: "row", alignItems: "center", paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: "rgba(255,255,255,0.07)", gap: 10 },
+  backBtn: { width: 34, height: 34, borderRadius: R, backgroundColor: "rgba(255,255,255,0.06)", borderWidth: 1, borderColor: "rgba(255,255,255,0.1)", alignItems: "center", justifyContent: "center" },
+  iconBtn: { width: 34, height: 34, borderRadius: R, backgroundColor: "rgba(255,255,255,0.06)", borderWidth: 1, borderColor: "rgba(255,255,255,0.1)", alignItems: "center", justifyContent: "center" },
+  headerTitle: { color: "#FFF", fontSize: 15, fontWeight: "700", letterSpacing: -0.2 },
+  sendBtn: { flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 13, paddingVertical: 8, borderRadius: R },
+  sendBtnText: { color: "#FFF", fontSize: 12, fontWeight: "800", letterSpacing: 0.2 },
+  subheader: { paddingHorizontal: 16, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: "rgba(255,255,255,0.04)" },
+  subheaderText: { color: "rgba(255,255,255,0.4)", fontSize: 12 },
+
+  // Scroll
+  scroll: { paddingHorizontal: 16, paddingTop: 16, flexGrow: 1 },
+
+  // Runtime
+  runtimeCard: { backgroundColor: "#13172A", borderRadius: R, borderWidth: 1, borderColor: "rgba(255,255,255,0.08)", padding: 16, marginBottom: 20 },
+  runtimeLabel: { color: "rgba(255,255,255,0.4)", fontSize: 10, fontWeight: "700", textTransform: "uppercase", letterSpacing: 1.2 },
+  runtimeValue: { color: "#FFF", fontSize: 34, fontWeight: "900", letterSpacing: -1 },
+  runtimeMeta: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: "rgba(255,255,255,0.05)" },
+  runtimeMetaItem: { color: "rgba(255,255,255,0.4)", fontSize: 11 },
+  runtimeMetaDot: { color: "rgba(255,255,255,0.18)", fontSize: 11 },
+  iconSmallBtn: { width: 26, height: 26, borderRadius: R, backgroundColor: "rgba(255,255,255,0.05)", alignItems: "center", justifyContent: "center" },
+  conflictBadge: { flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: "rgba(245,158,11,0.1)", borderWidth: 1, borderColor: "rgba(245,158,11,0.25)", borderRadius: R, paddingHorizontal: 8, paddingVertical: 3 },
+  conflictText: { color: "#FCD34D", fontSize: 10, fontWeight: "700" },
+
+  // Section
+  sectionTitle: { color: "rgba(255,255,255,0.38)", fontSize: 10, fontWeight: "800", textTransform: "uppercase", letterSpacing: 1.4, marginBottom: 10 },
+  addBtn: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 10, paddingVertical: 5, backgroundColor: "rgba(167,139,250,0.08)", borderRadius: R, borderWidth: 1, borderColor: "rgba(167,139,250,0.22)" },
+  addBtnText: { color: "#A78BFA", fontSize: 12, fontWeight: "700" },
+
+  // Sessions
+  sessionRow: { flexDirection: "row", alignItems: "center", backgroundColor: "#13172A", borderRadius: R, borderWidth: 1, borderColor: "rgba(255,255,255,0.07)", padding: 14, marginBottom: 8, gap: 12 },
+  sessionIndex: { width: 28, height: 28, borderRadius: R, backgroundColor: "rgba(91,94,255,0.12)", borderWidth: 1, borderColor: "rgba(91,94,255,0.25)", alignItems: "center", justifyContent: "center" },
+  sessionIndexText: { color: "#A78BFA", fontSize: 12, fontWeight: "800" },
+  sessionName: { color: "#FFF", fontSize: 14, fontWeight: "700", marginBottom: 2 },
+  sessionMeta: { color: "rgba(255,255,255,0.42)", fontSize: 12 },
+  sessionPerson: { color: "rgba(167,139,250,0.75)", fontSize: 11, marginTop: 2 },
+
+  // Empty
+  empty: { alignItems: "center", paddingVertical: 52, gap: 8 },
+  emptyTitle: { color: "rgba(255,255,255,0.42)", fontSize: 15, fontWeight: "700" },
+  emptySub: { color: "rgba(255,255,255,0.22)", fontSize: 12, textAlign: "center" },
+  emptyAddBtn: { flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: "#5B5EFF", borderRadius: R, paddingHorizontal: 16, paddingVertical: 10, marginTop: 8 },
+  emptyAddBtnText: { color: "#FFF", fontSize: 13, fontWeight: "700" },
+
+  // Session editor
+  sessionEditorMeta: { color: "rgba(255,255,255,0.42)", fontSize: 13, marginBottom: 20 },
+  card: { backgroundColor: "#13172A", borderRadius: R, borderWidth: 1, borderColor: "rgba(255,255,255,0.07)", overflow: "hidden", marginBottom: 4 },
+  settingRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, paddingVertical: 14 },
+  settingLabel: { color: "rgba(255,255,255,0.85)", fontSize: 14, fontWeight: "500" },
+  settingVal: { color: "rgba(255,255,255,0.45)", fontSize: 13, maxWidth: 180, textAlign: "right" },
+  divider: { height: 1, backgroundColor: "rgba(255,255,255,0.05)", marginHorizontal: 16 },
+  pill: { paddingHorizontal: 10, paddingVertical: 3, borderRadius: R, backgroundColor: "rgba(255,255,255,0.07)", borderWidth: 1, borderColor: "rgba(255,255,255,0.12)" },
+  pillActive: { backgroundColor: "rgba(34,197,94,0.12)", borderColor: "rgba(34,197,94,0.35)" },
+  pillText: { color: "rgba(255,255,255,0.45)", fontSize: 12, fontWeight: "700" },
+  pillTextActive: { color: "#4ADE80" },
+  toggle: { width: 38, height: 22, borderRadius: 11, backgroundColor: "rgba(255,255,255,0.1)", justifyContent: "center", paddingHorizontal: 2 },
+  toggleOn: { backgroundColor: "#5B5EFF" },
+  toggleThumb: { width: 18, height: 18, borderRadius: 9, backgroundColor: "rgba(255,255,255,0.45)" },
+  toggleThumbOn: { backgroundColor: "#FFF", alignSelf: "flex-end" },
+  badge: { minWidth: 22, height: 22, borderRadius: R, backgroundColor: "rgba(91,94,255,0.12)", borderWidth: 1, borderColor: "rgba(91,94,255,0.25)", alignItems: "center", justifyContent: "center", paddingHorizontal: 6 },
+  badgeText: { color: "#A78BFA", fontSize: 11, fontWeight: "800" },
+
+  // Cues
+  cueTimestamp: { color: "rgba(255,255,255,0.3)", fontSize: 10, fontWeight: "700", letterSpacing: 0.5, marginTop: 10, marginBottom: 5 },
+  cueCard: { flexDirection: "row", alignItems: "center", backgroundColor: "#13172A", borderRadius: R, borderWidth: 1, padding: 12, marginBottom: 4, gap: 12 },
+  cueIconBox: { width: 40, height: 40, borderRadius: R, alignItems: "center", justifyContent: "center" },
+  cueName: { color: "#FFF", fontSize: 13, fontWeight: "700", marginBottom: 2 },
+  cueMeta: { color: "rgba(255,255,255,0.38)", fontSize: 11 },
+
+  // Cue editor sheet
+  sheetOverlay: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(0,0,0,0.65)" },
+  editorSheet: { backgroundColor: "#13172A", borderTopLeftRadius: R, borderTopRightRadius: R, borderTopWidth: 1, borderColor: "rgba(255,255,255,0.12)", padding: 20, maxHeight: "86%" },
+  editorTitle: { color: "#FFF", fontSize: 16, fontWeight: "800" },
+  editorSub: { color: "rgba(255,255,255,0.42)", fontSize: 12, marginTop: 2 },
+  closeBtn: { width: 30, height: 30, borderRadius: R, backgroundColor: "rgba(255,255,255,0.1)", alignItems: "center", justifyContent: "center" },
+  fieldLabel: { color: "rgba(255,255,255,0.42)", fontSize: 10, fontWeight: "700", textTransform: "uppercase", letterSpacing: 1.1, marginBottom: 6, marginTop: 14 },
+  fieldInput: { backgroundColor: "rgba(255,255,255,0.05)", borderWidth: 1, borderColor: "rgba(255,255,255,0.1)", borderRadius: R, paddingHorizontal: 12, paddingVertical: 10, color: "#FFF", fontSize: 14, fontWeight: "600" },
+  durationLabel: { color: "rgba(255,255,255,0.38)", fontSize: 11, fontWeight: "600", textTransform: "uppercase", letterSpacing: 0.8 },
+  durationValue: { color: "#A78BFA", fontSize: 13, fontWeight: "800" },
+  nudgeLabel: { color: "rgba(255,255,255,0.32)", fontSize: 10, fontWeight: "600", marginBottom: 6 },
+  nudgeBtn: { flex: 1, backgroundColor: "rgba(255,255,255,0.06)", borderWidth: 1, borderColor: "rgba(255,255,255,0.1)", borderRadius: R, paddingVertical: 8, alignItems: "center" },
+  nudgeText: { color: "rgba(255,255,255,0.75)", fontSize: 12, fontWeight: "700" },
+  segActive: { flex: 1, backgroundColor: "#5B5EFF", borderRadius: R, paddingVertical: 9, alignItems: "center" },
+  segInactive: { flex: 1, backgroundColor: "rgba(255,255,255,0.05)", borderWidth: 1, borderColor: "rgba(255,255,255,0.1)", borderRadius: R, paddingVertical: 9, alignItems: "center" },
+  segTextActive: { color: "#FFF", fontSize: 12, fontWeight: "800" },
+  segTextInactive: { color: "rgba(255,255,255,0.48)", fontSize: 12, fontWeight: "600" },
+  secondaryBtn: { backgroundColor: "rgba(255,255,255,0.06)", borderWidth: 1, borderColor: "rgba(255,255,255,0.1)", borderRadius: R, paddingVertical: 12, alignItems: "center", marginTop: 16 },
+  secondaryBtnText: { color: "rgba(255,255,255,0.72)", fontSize: 13, fontWeight: "700" },
+  deleteBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, backgroundColor: "rgba(239,68,68,0.07)", borderWidth: 1, borderColor: "rgba(239,68,68,0.18)", borderRadius: R, paddingVertical: 12, marginTop: 8, marginBottom: 20 },
+  deleteBtnText: { color: "#EF4444", fontSize: 13, fontWeight: "700" },
+
+  // Modal / field editor
+  modalBg: { flex: 1, backgroundColor: "rgba(0,0,0,0.75)", alignItems: "center", justifyContent: "center", paddingHorizontal: 20 },
+  modalCard: { width: "100%", backgroundColor: "#13172A", borderRadius: R, borderWidth: 1, borderColor: "rgba(255,255,255,0.12)", padding: 20 },
+  modalTitle: { color: "#FFF", fontSize: 15, fontWeight: "800", marginBottom: 12 },
+  cancelBtn: { flex: 1, backgroundColor: "rgba(255,255,255,0.06)", borderWidth: 1, borderColor: "rgba(255,255,255,0.1)", borderRadius: R, paddingVertical: 11, alignItems: "center" },
+  cancelBtnText: { color: "rgba(255,255,255,0.58)", fontSize: 13, fontWeight: "700" },
+  saveBtn: { flex: 1, backgroundColor: "#5B5EFF", borderRadius: R, paddingVertical: 11, alignItems: "center", justifyContent: "center" },
+  saveBtnText: { color: "#FFF", fontSize: 13, fontWeight: "800" },
+
+  // Sheet
+  sheet: { backgroundColor: "#13172A", borderTopLeftRadius: R, borderTopRightRadius: R, borderTopWidth: 1, borderColor: "rgba(255,255,255,0.12)", padding: 20, paddingBottom: 36 },
+  sheetHandle: { width: 36, height: 4, borderRadius: 2, backgroundColor: "rgba(255,255,255,0.15)", alignSelf: "center", marginBottom: 16 },
+  sheetTitle: { color: "#FFF", fontSize: 15, fontWeight: "800", marginBottom: 2 },
+  sheetSub: { color: "rgba(255,255,255,0.38)", fontSize: 12, marginBottom: 16 },
+  sheetOption: { flexDirection: "row", alignItems: "center", gap: 14, paddingVertical: 12, borderTopWidth: 1, borderTopColor: "rgba(255,255,255,0.05)" },
+  sheetOptionIcon: { width: 40, height: 40, borderRadius: R, alignItems: "center", justifyContent: "center" },
+  sheetOptionLabel: { color: "#FFF", fontSize: 14, fontWeight: "700" },
+  sheetOptionSub: { color: "rgba(255,255,255,0.38)", fontSize: 11, marginTop: 1 },
+
+  // Undo banner
+  undoBanner: { position: "absolute", left: 16, right: 16, flexDirection: "row", alignItems: "center", justifyContent: "space-between", backgroundColor: "#1E1B4B", borderWidth: 1, borderColor: "rgba(91,94,255,0.28)", borderRadius: R, padding: 12, paddingHorizontal: 14 },
+  undoBannerText: { color: "#FFF", fontSize: 12, flex: 1, marginRight: 10 },
+  undoBtn2: { backgroundColor: "#5B5EFF", borderRadius: R, paddingHorizontal: 12, paddingVertical: 6 },
+  undoBtnText: { color: "#FFF", fontSize: 11, fontWeight: "800", textTransform: "uppercase", letterSpacing: 0.4 },
+  undoDismiss: { width: 22, height: 22, borderRadius: R, backgroundColor: "rgba(255,255,255,0.1)", alignItems: "center", justifyContent: "center" },
+
+  // Transfer overlay
+  overlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.8)", alignItems: "center", justifyContent: "center", paddingHorizontal: 24 },
+  overlayCard: { width: "100%", backgroundColor: "#13172A", borderRadius: R, borderWidth: 1, borderColor: "rgba(91,94,255,0.28)", padding: 24, alignItems: "center" },
+  overlayTitle: { color: "#FFF", fontSize: 16, fontWeight: "800", marginBottom: 4 },
+  overlaySub: { color: "rgba(255,255,255,0.5)", fontSize: 12, textAlign: "center", marginBottom: 16 },
+  progressBar: { width: "100%", height: 6, backgroundColor: "rgba(255,255,255,0.1)", borderRadius: 3, overflow: "hidden", marginBottom: 6 },
+  progressFill: { height: "100%", backgroundColor: "#5B5EFF", borderRadius: 3 },
+  progressPct: { color: "rgba(255,255,255,0.38)", fontSize: 11, fontWeight: "700", marginBottom: 16 },
+  cancelTransferBtn: { backgroundColor: "rgba(239,68,68,0.08)", borderWidth: 1, borderColor: "rgba(239,68,68,0.25)", borderRadius: R, paddingHorizontal: 20, paddingVertical: 8 },
+  cancelTransferText: { color: "#F87171", fontSize: 12, fontWeight: "700" },
+
+  // Agenda picker
+  agendaRow: { flexDirection: "row", alignItems: "center", padding: 12, backgroundColor: "rgba(255,255,255,0.04)", borderRadius: R, borderWidth: 1, borderColor: "rgba(255,255,255,0.06)", marginBottom: 6 },
+  agendaRowActive: { backgroundColor: "rgba(91,94,255,0.1)", borderColor: "rgba(91,94,255,0.3)" },
+  agendaRowName: { color: "#FFF", fontSize: 13, fontWeight: "700" },
+  agendaRowMeta: { color: "rgba(255,255,255,0.38)", fontSize: 11, marginTop: 1 },
+  agendaAction: { width: 28, height: 28, borderRadius: R, backgroundColor: "rgba(255,255,255,0.05)", alignItems: "center", justifyContent: "center" },
+});

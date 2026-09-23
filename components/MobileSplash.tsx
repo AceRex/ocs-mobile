@@ -2,6 +2,8 @@ import React, { useEffect, useState } from "react";
 import { View, Text, StyleSheet, Animated, ActivityIndicator, Platform } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 
+import AppLogo from "./AppLogo";
+
 // Build identifier — update this whenever building a new APK to confirm version on device
 const BUILD_ID = "Sep03-00:25";
 
@@ -43,26 +45,21 @@ export default function MobileSplash({ onFinish, minDurationMs = 1200 }: MobileS
   return (
     <Animated.View style={[styles.container, { opacity: fadeAnim }]}>
       <LinearGradient
-        colors={["#0B0814", "#161026", "#0B0814"]}
+        colors={["#0B1020", "#12182B", "#0B1020"]}
         style={StyleSheet.absoluteFill}
       />
       <Animated.View style={[styles.content, { transform: [{ scale: scaleAnim }] }]}>
-        <LinearGradient
-          colors={["#7c3aed", "#06b6d4"]}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={styles.logoBox}
-        >
-          <Text style={styles.logoText}>O</Text>
-        </LinearGradient>
-        <Text style={styles.title}>OCS</Text>
-        <Text style={styles.subtitle}>ORGANIZED CHURCH SERVICE</Text>
+        <View style={styles.logoContainer}>
+          <AppLogo variant="icon" height={72} width={72} />
+        </View>
+        <AppLogo variant="horizontal" height={30} color="white" />
+        <Text style={styles.subtitle}>MOBILE COMPANION & CAMERA SWITCHER</Text>
         <View style={styles.indicatorContainer}>
-          <ActivityIndicator color="#A855F7" size="small" />
+          <ActivityIndicator color="#00E5FF" size="small" />
           <Text style={styles.statusText}>Connecting to companion bus...</Text>
         </View>
       </Animated.View>
-      <Text style={styles.versionText}>Mobile Companion • v1.10 • {BUILD_ID}</Text>
+      <Text style={styles.versionText}>wave.io Companion • v1.10 • {BUILD_ID}</Text>
     </Animated.View>
   );
 }
@@ -83,30 +80,13 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 12,
   },
-  logoBox: {
+  logoContainer: {
     width: 80,
     height: 80,
-    borderRadius: 24,
+    borderRadius: 12,
     alignItems: "center",
     justifyContent: "center",
-    ...Platform.select({
-      web: {
-        boxShadow: "0 8px 16px rgba(124, 58, 237, 0.5)",
-      },
-      default: {
-        shadowColor: "#7C3AED",
-        shadowOffset: { width: 0, height: 8 },
-        shadowOpacity: 0.5,
-        shadowRadius: 16,
-        elevation: 10,
-      },
-    }),
     marginBottom: 8,
-  },
-  logoText: {
-    fontSize: 40,
-    fontWeight: "900",
-    color: "#FFFFFF",
   },
   title: {
     fontSize: 28,

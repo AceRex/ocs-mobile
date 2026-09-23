@@ -28,6 +28,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import * as Linking from "expo-linking";
 import * as Haptics from "expo-haptics";
 import { useAuthStore } from "../store/authStore";
+import AppLogo from "../components/AppLogo";
 
 export default function LoginScreen() {
   const router = useRouter();
@@ -123,6 +124,9 @@ export default function LoginScreen() {
 
           {/* Titles */}
           <View style={styles.titleSection}>
+            <View style={{ marginBottom: 12, alignItems: "flex-start" }}>
+              <AppLogo variant="horizontal" height={28} />
+            </View>
             <Text style={styles.mainTitle}>Welcome Back</Text>
             <Text style={styles.subTitle}>
               Sign in to your wave.io account to unlock all mobile companion

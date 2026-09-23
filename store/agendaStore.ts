@@ -69,6 +69,7 @@ export interface AgendaDocument {
 
 export interface TransferProgress {
   transferring: boolean;
+  waitingApproval?: boolean;
   progress: number;
   status: string;
   error: string | null;
@@ -662,8 +663,9 @@ export const useAgendaStore = create<AgendaState>((set, get) => ({
     set({
       transfer: {
         transferring: true,
-        progress: 0,
-        status: 'Sending offer to controller...',
+        waitingApproval: false,
+        progress: 5,
+        status: 'Sending offer to desktop...',
         error: null,
       },
     });
@@ -682,23 +684,68 @@ export const useAgendaStore = create<AgendaState>((set, get) => ({
       });
 
       if (!offerRes?.ok) {
-        throw new Error(offerRes?.error || 'Desktop declined agenda offer');
+        throw new Error(offerRes?.error || 'Failed to submit agenda offer');
       }
 
       const transferId = offerRes.transferId;
-      const neededHashes: string[] = offerRes.neededAssetHashes || [];
 
+      // Step 2: Operator approval waiting state
       set({
         transfer: {
           transferring: true,
-          progress: 10,
-          status: `Desktop accepted. Preparing ${neededHashes.length} assets...`,
+          waitingApproval: true,
+          progress: 15,
+          status: 'Waiting for desktop approval…',
           error: null,
           transferId,
         },
       });
 
-      // Step 2: Stream missing assets chunk-by-chunk
+      const responseData: any = await new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          socket.off('agenda-offer-responded', handleResponse);
+          reject(new Error('Timed out waiting for desktop operator approval'));
+        }, 180000); // 3 minutes timeout
+
+        const handleResponse = (data: any) => {
+          if (data && data.transferId === transferId) {
+            clearTimeout(timeout);
+            socket.off('agenda-offer-responded', handleResponse);
+            resolve(data);
+          }
+        };
+
+        socket.on('agenda-offer-responded', handleResponse);
+      });
+
+      if (!responseData?.accepted) {
+        set({
+          transfer: {
+            transferring: false,
+            waitingApproval: false,
+            progress: 0,
+            status: 'Agenda declined',
+            error: "Agenda was declined by the desktop operator.",
+            transferId,
+          },
+        });
+        return { ok: false, error: 'Agenda was declined by the desktop operator.' };
+      }
+
+      const neededHashes: string[] = responseData.neededAssetHashes || [];
+
+      set({
+        transfer: {
+          transferring: true,
+          waitingApproval: false,
+          progress: 30,
+          status: `Desktop accepted ✓ Preparing ${neededHashes.length} asset${neededHashes.length !== 1 ? 's' : ''}...`,
+          error: null,
+          transferId,
+        },
+      });
+
+      // Step 3: Stream missing assets chunk-by-chunk
       const assetsToSend = (agenda.assets || []).filter((a) => neededHashes.includes(a.hash));
       let uploadedFiles = 0;
 
@@ -706,7 +753,8 @@ export const useAgendaStore = create<AgendaState>((set, get) => ({
         set({
           transfer: {
             transferring: true,
-            progress: 10 + Math.round((uploadedFiles / Math.max(1, assetsToSend.length)) * 75),
+            waitingApproval: false,
+            progress: 30 + Math.round((uploadedFiles / Math.max(1, assetsToSend.length)) * 55),
             status: `Uploading "${asset.originalName}"...`,
             error: null,
             transferId,
@@ -762,11 +810,12 @@ export const useAgendaStore = create<AgendaState>((set, get) => ({
         uploadedFiles++;
       }
 
-      // Step 3: Finalize transfer
+      // Step 4: Finalize transfer
       set({
         transfer: {
           transferring: true,
-          progress: 95,
+          waitingApproval: false,
+          progress: 90,
           status: 'Verifying manifest and committing to library...',
           error: null,
           transferId,
@@ -788,8 +837,9 @@ export const useAgendaStore = create<AgendaState>((set, get) => ({
       set({
         transfer: {
           transferring: false,
+          waitingApproval: false,
           progress: 100,
-          status: 'Transfer complete! Agenda is Ready on desktop controller.',
+          status: 'Agenda accepted ✓',
           error: null,
           transferId,
         },
@@ -800,8 +850,9 @@ export const useAgendaStore = create<AgendaState>((set, get) => ({
       set({
         transfer: {
           transferring: false,
+          waitingApproval: false,
           progress: 0,
-          status: 'Transfer failed',
+          status: "Couldn't send Agenda",
           error: err.message,
         },
       });
@@ -820,6 +871,7 @@ export const useAgendaStore = create<AgendaState>((set, get) => ({
     set({
       transfer: {
         transferring: false,
+        waitingApproval: false,
         progress: 0,
         status: 'Transfer cancelled',
         error: null,
