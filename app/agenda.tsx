@@ -246,11 +246,7 @@ export default function MobileAgendaScreen() {
     }
 
     const res = await sendToDesktop(currentAgenda.id);
-    if (res.ok) {
-      setSendSuccess(true);
-      if (sendSuccessTimer.current) clearTimeout(sendSuccessTimer.current);
-      sendSuccessTimer.current = setTimeout(() => setSendSuccess(false), 6000);
-    } else if (res.error && !res.error.toLowerCase().includes("declined")) {
+    if (!res.ok && res.error && !res.error.toLowerCase().includes("declined")) {
       Alert.alert(
         "Couldn't send Agenda",
         `Debug:\n${res.error}`,

@@ -162,6 +162,8 @@ function getAssetsDir(): string | null {
   }
 }
 
+let activeOfferResponseListener: ((data: any) => void) | null = null;
+
 export const useAgendaStore = create<AgendaState>((set, get) => ({
   agendas: [],
   activeAgendaId: null,
@@ -652,32 +654,13 @@ export const useAgendaStore = create<AgendaState>((set, get) => ({
   // ── Reliable Desktop LAN Transfer ────────────────────────────────────────
 
   sendToDesktop: async (agendaId) => {
-    const corrId = Math.random().toString(36).substring(2, 8);
+    const corrId = 'AG-' + Math.random().toString(36).substring(2, 6).toUpperCase();
+    console.log(`[${corrId}] SEND_PRESSED`);
+
     const agenda = get().agendas.find((a) => a.id === agendaId);
     if (!agenda) {
-      console.warn(`[AGENDA-SEND ${corrId}] Agenda not found for ID: ${agendaId}`);
-      return { ok: false, error: 'Agenda not found' };
-    }
-
-    const socketStore = useSocketStore.getState();
-    const socket = socketStore.socket;
-
-    console.log(`[AGENDA-SEND ${corrId}] MOBILE send pressed`);
-    console.log(`[AGENDA-SEND ${corrId}] socket.connected = ${socket?.connected}, socket.id = ${socket?.id}`);
-    console.log(`[AGENDA-SEND ${corrId}] paired state = ${socketStore.isPaired}, isConnected = ${socketStore.isConnected}`);
-    console.log(`[AGENDA-SEND ${corrId}] paired desktop identifier = ${socketStore.lastHost || socketStore.serverIp}, paired desktop IP = ${socketStore.serverIp}`);
-    console.log(`[AGENDA-SEND ${corrId}] Agenda ID = ${agenda.id}, title = "${agenda.name}", sessions = ${agenda.sessions?.length || 0}, cues = ${(agenda.sessions || []).reduce((acc, s) => acc + (s.timelineItems?.length || 0), 0)}`);
-    console.log(`[AGENDA-SEND ${corrId}] transfer.status = "${get().transfer.status}", transfer.error = "${get().transfer.error}"`);
-
-    if (!socket || !socket.connected || !socketStore.isConnected || !socketStore.isPaired) {
-      const err = !socket
-        ? 'Socket instance is null'
-        : !socket.connected
-        ? 'Socket disconnected before agenda offer'
-        : !socketStore.isConnected
-        ? 'Socket is not connected to desktop'
-        : 'Mobile is not paired with desktop';
-      console.warn(`[AGENDA-SEND ${corrId}] PRE-CHECK FAILED: ${err}`);
+      const err = `AG-SEND-004 Agenda not found for ID: ${agendaId}`;
+      console.warn(`[${corrId}] ${err}`);
       set({
         transfer: {
           transferring: false,
@@ -690,6 +673,80 @@ export const useAgendaStore = create<AgendaState>((set, get) => ({
       return { ok: false, error: err };
     }
 
+    const socketStore = useSocketStore.getState();
+    const socket = socketStore.socket;
+
+    console.log(`[${corrId}] SOCKET_CHECK (exists=${!!socket}, connected=${!!socket?.connected}, id=${socket?.id || 'none'}, isPaired=${socketStore.isPaired}, isConnected=${socketStore.isConnected})`);
+
+    if (!socket) {
+      const err = 'AG-SEND-001 Socket unavailable (socket instance is null)';
+      console.warn(`[${corrId}] PRE-CHECK FAILED: ${err}`);
+      set({
+        transfer: {
+          transferring: false,
+          waitingApproval: false,
+          progress: 0,
+          status: "Couldn't send Agenda",
+          error: err,
+        },
+      });
+      return { ok: false, error: err };
+    }
+
+    if (!socket.connected) {
+      const err = 'AG-SEND-002 Socket disconnected before agenda offer';
+      console.warn(`[${corrId}] PRE-CHECK FAILED: ${err}`);
+      set({
+        transfer: {
+          transferring: false,
+          waitingApproval: false,
+          progress: 0,
+          status: "Couldn't send Agenda",
+          error: err,
+        },
+      });
+      return { ok: false, error: err };
+    }
+
+    if (!socketStore.isPaired) {
+      const err = 'AG-SEND-003 Desktop not paired (mobile is not paired with desktop controller)';
+      console.warn(`[${corrId}] PRE-CHECK FAILED: ${err}`);
+      set({
+        transfer: {
+          transferring: false,
+          waitingApproval: false,
+          progress: 0,
+          status: "Couldn't send Agenda",
+          error: err,
+        },
+      });
+      return { ok: false, error: err };
+    }
+
+    let approxBytes = 0;
+    try {
+      const jsonStr = JSON.stringify(agenda);
+      approxBytes = jsonStr.length;
+    } catch (serErr: any) {
+      const err = `AG-SEND-005 Payload serialization failed: ${serErr?.message || 'unknown'}`;
+      console.warn(`[${corrId}] ${err}`);
+      set({
+        transfer: {
+          transferring: false,
+          waitingApproval: false,
+          progress: 0,
+          status: "Couldn't send Agenda",
+          error: err,
+        },
+      });
+      return { ok: false, error: err };
+    }
+
+    const sessionCount = agenda.sessions?.length || 0;
+    const cueCount = (agenda.sessions || []).reduce((acc, s) => acc + (s.timelineItems?.length || 0), 0);
+    const assetCount = (agenda.assets || []).length;
+    console.log(`[${corrId}] PAYLOAD_READY (agendaId=${agenda.id}, sessions=${sessionCount}, cues=${cueCount}, assets=${assetCount}, approxBytes=${approxBytes})`);
+
     set({
       transfer: {
         transferring: true,
@@ -700,13 +757,13 @@ export const useAgendaStore = create<AgendaState>((set, get) => ({
       },
     });
 
+    console.log(`[${corrId}] EMIT EVENT_EMIT=mobile-agenda-offer`);
+    let offerRes: any;
     try {
-      console.log(`[AGENDA-SEND ${corrId}] payload built, emitting mobile-agenda-offer`);
-      // Step 1: Handshake offer with 15-second timeout (transport ACK only)
-      const offerRes: any = await new Promise((resolve, reject) => {
+      offerRes = await new Promise((resolve, reject) => {
         const timeout = setTimeout(() => {
-          console.warn(`[AGENDA-SEND ${corrId}] TIMEOUT waiting for desktop offer acknowledgement (15s)`);
-          reject(new Error('Agenda offer timed out waiting for desktop acknowledgement'));
+          console.warn(`[${corrId}] TIMEOUT waiting for desktop transport ACK (15s)`);
+          reject(new Error('AG-SEND-007 Desktop transport ACK timeout (15s elapsed without receipt acknowledgement)'));
         }, 15000);
 
         socket.emit(
@@ -718,66 +775,118 @@ export const useAgendaStore = create<AgendaState>((set, get) => ({
           },
           (res: any) => {
             clearTimeout(timeout);
-            console.log(`[AGENDA-SEND ${corrId}] acknowledgement returned from desktop:`, res);
             resolve(res);
           }
         );
       });
-
-      if (!offerRes?.ok) {
-        console.warn(`[AGENDA-SEND ${corrId}] desktop rejected offer: ${offerRes?.error}`);
-        throw new Error(offerRes?.error ? `Desktop rejected offer: ${offerRes.error}` : 'Failed to submit agenda offer');
-      }
-
-      const transferId = offerRes.transferId;
-      console.log(`[AGENDA-SEND ${corrId}] desktop accepted offer into pending state, transferId = ${transferId}`);
-
-      // Step 2: Operator approval waiting state
+    } catch (emitErr: any) {
+      const err = emitErr?.message || 'AG-SEND-006 Socket emit failed to dispatch';
+      console.warn(`[${corrId}] TRANSPORT_FAILED: ${err}`);
       set({
         transfer: {
-          transferring: true,
-          waitingApproval: true,
-          progress: 15,
-          status: 'Waiting for desktop approval…',
-          error: null,
-          transferId,
+          transferring: false,
+          waitingApproval: false,
+          progress: 0,
+          status: "Couldn't send Agenda",
+          error: err,
         },
       });
+      return { ok: false, error: err };
+    }
 
-      const responseData: any = await new Promise((resolve, reject) => {
-        // Human operator approval does not have a 15-second timeout.
-        // Generous 30-minute safeguard allows the operator to review as long as needed.
-        const timeout = setTimeout(() => {
-          socket.off('agenda-offer-responded', handleResponse);
-          reject(new Error('Timed out waiting for desktop operator approval (30m)'));
-        }, 1800000); // 30 minutes
-
-        const handleResponse = (data: any) => {
-          if (data && data.transferId === transferId) {
-            clearTimeout(timeout);
-            socket.off('agenda-offer-responded', handleResponse);
-            resolve(data);
-          }
-        };
-
-        socket.on('agenda-offer-responded', handleResponse);
+    if (!offerRes || typeof offerRes !== 'object') {
+      const err = 'AG-SEND-009 Malformed desktop ACK (response is empty or non-object)';
+      console.warn(`[${corrId}] ${err}`);
+      set({
+        transfer: {
+          transferring: false,
+          waitingApproval: false,
+          progress: 0,
+          status: "Couldn't send Agenda",
+          error: err,
+        },
       });
+      return { ok: false, error: err };
+    }
 
-      if (!responseData?.accepted) {
+    if (!offerRes.ok) {
+      const err = `AG-SEND-008 Desktop rejected offer: ${offerRes.error || 'Unknown rejection'}`;
+      console.warn(`[${corrId}] ${err}`);
+      set({
+        transfer: {
+          transferring: false,
+          waitingApproval: false,
+          progress: 0,
+          status: "Couldn't send Agenda",
+          error: err,
+        },
+      });
+      return { ok: false, error: err };
+    }
+
+    const transferId = offerRes.transferId;
+    if (!transferId) {
+      const err = 'AG-SEND-009 Malformed desktop ACK (missing transferId)';
+      console.warn(`[${corrId}] ${err}`);
+      set({
+        transfer: {
+          transferring: false,
+          waitingApproval: false,
+          progress: 0,
+          status: "Couldn't send Agenda",
+          error: err,
+        },
+      });
+      return { ok: false, error: err };
+    }
+
+    console.log(`[${corrId}] ACK_RECEIVED (transferId: ${transferId})`);
+    console.log(`[${corrId}] WAITING_APPROVAL`);
+
+    // Transition immediately to WAITING_APPROVAL — do NOT block or timeout waiting for human approval
+    set({
+      transfer: {
+        transferring: false,
+        waitingApproval: true,
+        progress: 15,
+        status: 'Waiting for desktop approval…',
+        error: null,
+        transferId,
+      },
+    });
+
+    // Cleanup any previous operator response listener
+    if (activeOfferResponseListener) {
+      socket.off('agenda-offer-responded', activeOfferResponseListener);
+      activeOfferResponseListener = null;
+    }
+
+    // Register independent event listener for future human operator decision
+    activeOfferResponseListener = async (data: any) => {
+      if (!data || data.transferId !== transferId) return;
+      if (activeOfferResponseListener) {
+        socket.off('agenda-offer-responded', activeOfferResponseListener);
+        activeOfferResponseListener = null;
+      }
+
+      if (!data.accepted) {
+        console.log(`[${corrId}] DECISION_RECEIVED=DECLINE`);
+        console.log(`[${corrId}] DECLINED`);
         set({
           transfer: {
             transferring: false,
             waitingApproval: false,
             progress: 0,
             status: 'Agenda declined',
-            error: null, // Operator decline is NOT a technical failure
+            error: null,
             transferId,
           },
         });
-        return { ok: false, error: 'Agenda was declined by the desktop operator.' };
+        return;
       }
 
-      const neededHashes: string[] = responseData.neededAssetHashes || [];
+      console.log(`[${corrId}] DECISION_RECEIVED=ACCEPT`);
+      const neededHashes: string[] = data.neededAssetHashes || [];
 
       set({
         transfer: {
@@ -790,128 +899,132 @@ export const useAgendaStore = create<AgendaState>((set, get) => ({
         },
       });
 
-      // Step 3: Stream missing assets chunk-by-chunk
-      const assetsToSend = (agenda.assets || []).filter((a) => neededHashes.includes(a.hash));
-      let uploadedFiles = 0;
+      try {
+        const assetsToSend = (agenda.assets || []).filter((a) => neededHashes.includes(a.hash));
+        let uploadedFiles = 0;
 
-      for (const asset of assetsToSend) {
+        for (const asset of assetsToSend) {
+          set({
+            transfer: {
+              transferring: true,
+              waitingApproval: false,
+              progress: 30 + Math.round((uploadedFiles / Math.max(1, assetsToSend.length)) * 55),
+              status: `Uploading "${asset.originalName}"...`,
+              error: null,
+              transferId,
+            },
+          });
+
+          let dataBase64 = '';
+          if (asset.localUri) {
+            try {
+              dataBase64 = await FileSystem.readAsStringAsync(asset.localUri, {
+                encoding: FileSystem.EncodingType.Base64,
+              });
+            } catch (_) {}
+          }
+
+          const chunkRes: any = await new Promise((resolve) => {
+            socket.emit(
+              'mobile-agenda-chunk',
+              {
+                transferId,
+                hash: asset.hash,
+                chunkIndex: 0,
+                totalChunks: 1,
+                data: dataBase64,
+              },
+              resolve
+            );
+          });
+
+          if (!chunkRes?.ok) {
+            throw new Error(chunkRes?.error || `Failed chunk for ${asset.originalName}`);
+          }
+
+          const finalizeRes: any = await new Promise((resolve) => {
+            socket.emit(
+              'mobile-agenda-finalize-asset',
+              {
+                transferId,
+                hash: asset.hash,
+                originalName: asset.originalName,
+              },
+              resolve
+            );
+          });
+
+          if (!finalizeRes?.ok) {
+            throw new Error(finalizeRes?.error || `Verification failed for ${asset.originalName}`);
+          }
+
+          uploadedFiles++;
+        }
+
         set({
           transfer: {
             transferring: true,
             waitingApproval: false,
-            progress: 30 + Math.round((uploadedFiles / Math.max(1, assetsToSend.length)) * 55),
-            status: `Uploading "${asset.originalName}"...`,
+            progress: 90,
+            status: 'Verifying manifest and committing to library...',
             error: null,
             transferId,
           },
         });
 
-        // Read file in chunks
-        let dataBase64 = '';
-        if (asset.localUri) {
-          try {
-            dataBase64 = await FileSystem.readAsStringAsync(asset.localUri, {
-              encoding: FileSystem.EncodingType.Base64,
-            });
-          } catch (_) {}
-        }
-
-        // Send chunk via socket
-        const chunkRes: any = await new Promise((resolve) => {
+        const finalRes: any = await new Promise((resolve) => {
           socket.emit(
-            'mobile-agenda-chunk',
-            {
-              transferId,
-              hash: asset.hash,
-              chunkIndex: 0,
-              totalChunks: 1,
-              data: dataBase64,
-            },
+            'mobile-agenda-finalize-transfer',
+            { transferId },
             resolve
           );
         });
 
-        if (!chunkRes?.ok) {
-          throw new Error(chunkRes?.error || `Failed chunk for ${asset.originalName}`);
+        if (!finalRes?.ok) {
+          throw new Error(finalRes?.error || 'Desktop failed to commit agenda');
         }
 
-        // Finalize asset
-        const finalizeRes: any = await new Promise((resolve) => {
-          socket.emit(
-            'mobile-agenda-finalize-asset',
-            {
-              transferId,
-              hash: asset.hash,
-              originalName: asset.originalName,
-            },
-            resolve
-          );
+        console.log(`[${corrId}] ACCEPTED`);
+        set({
+          transfer: {
+            transferring: false,
+            waitingApproval: false,
+            progress: 100,
+            status: 'Agenda accepted ✓',
+            error: null,
+            transferId,
+          },
         });
-
-        if (!finalizeRes?.ok) {
-          throw new Error(finalizeRes?.error || `Verification failed for ${asset.originalName}`);
-        }
-
-        uploadedFiles++;
+      } catch (streamErr: any) {
+        const err = `AG-SEND-010 Transfer asset stream failed: ${streamErr?.message || 'unknown'}`;
+        console.error(`[${corrId}] ${err}`);
+        set({
+          transfer: {
+            transferring: false,
+            waitingApproval: false,
+            progress: 0,
+            status: "Couldn't send Agenda",
+            error: err,
+            transferId,
+          },
+        });
       }
+    };
 
-      // Step 4: Finalize transfer
-      set({
-        transfer: {
-          transferring: true,
-          waitingApproval: false,
-          progress: 90,
-          status: 'Verifying manifest and committing to library...',
-          error: null,
-          transferId,
-        },
-      });
+    socket.on('agenda-offer-responded', activeOfferResponseListener);
 
-      const finalRes: any = await new Promise((resolve) => {
-        socket.emit(
-          'mobile-agenda-finalize-transfer',
-          { transferId },
-          resolve
-        );
-      });
-
-      if (!finalRes?.ok) {
-        throw new Error(finalRes?.error || 'Desktop failed to commit agenda');
-      }
-
-      set({
-        transfer: {
-          transferring: false,
-          waitingApproval: false,
-          progress: 100,
-          status: 'Agenda accepted ✓',
-          error: null,
-          transferId,
-        },
-      });
-
-      return { ok: true };
-    } catch (err: any) {
-      set({
-        transfer: {
-          transferring: false,
-          waitingApproval: false,
-          progress: 0,
-          status: "Couldn't send Agenda",
-          error: err.message,
-        },
-      });
-      return { ok: false, error: err.message };
-    }
+    return { ok: true, transferId };
   },
 
   cancelTransfer: () => {
     const tid = get().transfer.transferId;
-    if (tid) {
-      const socket = useSocketStore.getState().socket;
-      if (socket) {
-        socket.emit('mobile-agenda-abort', { transferId: tid });
-      }
+    const socket = useSocketStore.getState().socket;
+    if (activeOfferResponseListener && socket) {
+      socket.off('agenda-offer-responded', activeOfferResponseListener);
+      activeOfferResponseListener = null;
+    }
+    if (tid && socket) {
+      socket.emit('mobile-agenda-abort', { transferId: tid });
     }
     set({
       transfer: {
@@ -925,6 +1038,11 @@ export const useAgendaStore = create<AgendaState>((set, get) => ({
   },
 
   resetTransfer: () => {
+    const socket = useSocketStore.getState().socket;
+    if (activeOfferResponseListener && socket) {
+      socket.off('agenda-offer-responded', activeOfferResponseListener);
+      activeOfferResponseListener = null;
+    }
     set({
       transfer: {
         transferring: false,
