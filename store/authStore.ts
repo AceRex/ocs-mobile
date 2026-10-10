@@ -65,10 +65,6 @@ async function loadPersistedData(): Promise<{ token: string | null; user: AuthUs
         }
       }
     }
-    if (typeof localStorage !== 'undefined') {
-      const raw = localStorage.getItem('ocs_mobile_auth');
-      if (raw) return JSON.parse(raw);
-    }
   } catch (err) {
     console.warn('[AuthStore] Failed to load persisted auth:', err);
   }
@@ -85,9 +81,6 @@ async function savePersistedData(data: { token: string | null; user: AuthUser | 
       if (storageFile) {
         await FileSystem.writeAsStringAsync(storageFile, serialized);
       }
-    }
-    if (typeof localStorage !== 'undefined') {
-      localStorage.setItem('ocs_mobile_auth', serialized);
     }
   } catch (err) {
     console.warn('[AuthStore] Failed to save persisted auth:', err);

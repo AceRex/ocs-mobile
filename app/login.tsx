@@ -59,10 +59,37 @@ export default function LoginScreen() {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     } catch (_) {}
 
+    const trimmedServer = customServer.trim();
+    if (trimmedServer) {
+      try {
+        const parsedUrl = new URL(trimmedServer);
+        if (parsedUrl.protocol !== "http:" && parsedUrl.protocol !== "https:") {
+          setAuthError("Server URL must begin with http:// or https://");
+          return;
+        }
+        const host = parsedUrl.hostname;
+        const isLocal =
+          host === "localhost" ||
+          host === "127.0.0.1" ||
+          host === "10.0.2.2" ||
+          /^192\.168\.\d+\.\d+$/.test(host) ||
+          /^10\.\d+\.\d+\.\d+$/.test(host) ||
+          /^172\.(1[6-9]|2\d|3[0-1])\.\d+\.\d+$/.test(host);
+
+        if (parsedUrl.protocol === "http:" && !isLocal) {
+          setAuthError("Remote servers must use secure HTTPS (https://)");
+          return;
+        }
+      } catch (_) {
+        setAuthError("Invalid custom server address. Example: https://churchocs.com or http://192.168.1.100:5001");
+        return;
+      }
+    }
+
     const result = await login(
       email,
       password,
-      customServer.trim() || undefined,
+      trimmedServer || undefined,
     );
 
     if (result.success) {
