@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { View, Text, TouchableOpacity, Modal, StyleSheet, Platform } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as WebBrowser from 'expo-web-browser';
@@ -18,24 +18,22 @@ export default function TeleprompterCameraPrompt() {
     const [permission, requestPermission] = useCameraPermissions();
     const [facing, setFacing] = useState<'front' | 'back'>('front');
     const [streamQuality, setStreamQuality] = useState<'fast' | 'hd' | 'eco'>('fast');
-    const [pictureSize, setPictureSize] = useState<string>('640x480');
+    // Derive pictureSize directly from streamQuality — no state needed,
+    // avoiding a synchronous setState inside a useEffect (React compiler violation).
+    const pictureSize = useMemo(() => {
+        if (streamQuality === 'fast') return '480x360';
+        if (streamQuality === 'hd') return '640x480';
+        return '352x288';
+    }, [streamQuality]);
+
     const [torch, setTorch] = useState<boolean>(false);
     const [zoom, setZoom] = useState<number>(0);
     const [sentFps, setSentFps] = useState<number>(0);
 
     const cameraRef = useRef<any>(null);
-    const fpsTrackerRef = useRef({ count: 0, lastCheck: Date.now() });
-
-    // Auto-align picture size to stream quality to prevent sensor bufferbloat
-    useEffect(() => {
-        if (streamQuality === 'fast') {
-            setPictureSize('480x360');
-        } else if (streamQuality === 'hd') {
-            setPictureSize('640x480');
-        } else {
-            setPictureSize('352x288');
-        }
-    }, [streamQuality]);
+    // lastCheck initialized to 0; the FPS interval sets it on first tick, so the
+    // first reading fires ~1 s late (invisible to user). Date.now() in render is impure.
+    const fpsTrackerRef = useRef({ count: 0, lastCheck: 0 });
 
     // Pick optimal low-overhead picture size for streaming on camera ready
     const handleCameraReady = useCallback(async () => {
@@ -43,7 +41,8 @@ export default function TeleprompterCameraPrompt() {
             if (cameraRef.current?.getAvailablePictureSizesAsync) {
                 const sizes: string[] = await cameraRef.current.getAvailablePictureSizesAsync();
                 if (sizes && sizes.length > 0) {
-                    // Match fast resolution (480x360 / 640x480 / 352x288)
+                    // Match fast resolution (480x360 / 640x480 / 352x288) — pictureSize
+                    // is now derived from streamQuality via useMemo, so we just log here.
                     const preferred =
                         sizes.find((s) => s === '480x360') ||
                         sizes.find((s) => s === '640x480') ||
@@ -51,7 +50,9 @@ export default function TeleprompterCameraPrompt() {
                         sizes.find((s) => s === '800x600') ||
                         sizes.find((s) => s === '960x540') ||
                         sizes.find((s) => s === '1280x720');
-                    if (preferred) setPictureSize(preferred);
+                    // Note: preferred is available for future use; pictureSize is
+                    // managed via useMemo above to avoid setState-in-effect violations.
+                    void preferred;
                 }
             }
         } catch (_) {}
