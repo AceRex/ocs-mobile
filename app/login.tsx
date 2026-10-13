@@ -107,15 +107,18 @@ export default function LoginScreen() {
     }
   };
 
-  const handleOpenSignup = () => {
-    Linking.openURL("https://ocs-web-three.vercel.app/signup").catch(() => {});
+  const openAccountPage = (page: string) => {
+    const webUrl = process.env.EXPO_PUBLIC_WEB_URL;
+    if (!webUrl || !webUrl.startsWith('https://')) {
+      useAuthStore.getState().setAuthError('Account website is not configured.');
+      return;
+    }
+    Linking.openURL(`${webUrl.replace(/\/$/, '')}/${page}`).catch(() => {
+      useAuthStore.getState().setAuthError('Unable to open the account website.');
+    });
   };
-
-  const handleOpenForgotPassword = () => {
-    Linking.openURL("https://ocs-web-three.vercel.app/forgot-password").catch(
-      () => {},
-    );
-  };
+  const handleOpenSignup = () => openAccountPage('signup');
+  const handleOpenForgotPassword = () => openAccountPage('forgot-password');
 
   return (
     <SafeAreaView style={styles.safeArea}>

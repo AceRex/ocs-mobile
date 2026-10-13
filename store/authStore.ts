@@ -1,8 +1,9 @@
 import { create } from 'zustand';
 import * as FileSystem from 'expo-file-system/legacy';
 import { Platform } from 'react-native';
+import * as SecureStore from 'expo-secure-store';
 
-const DEFAULT_API_BASE = 'https://ocs-backend-ten.vercel.app';
+const DEFAULT_API_BASE = process.env.EXPO_PUBLIC_API_URL || '';
 const GUEST_DURATION_MS = 60 * 60 * 1000; // 1 hour in milliseconds
 
 export interface AuthUser {
@@ -61,7 +62,16 @@ async function loadPersistedData(): Promise<{ token: string | null; user: AuthUs
         const info = await FileSystem.getInfoAsync(storageFile);
         if (info.exists) {
           const raw = await FileSystem.readAsStringAsync(storageFile);
-          if (raw) return JSON.parse(raw);
+          if (raw) {
+            const legacy = JSON.parse(raw);
+            const secureToken = await SecureStore.getItemAsync('ocs_mobile_token');
+            const token = secureToken || legacy.token || null;
+            if (legacy.token) {
+              await SecureStore.setItemAsync('ocs_mobile_token', legacy.token);
+              await FileSystem.writeAsStringAsync(storageFile, JSON.stringify({ ...legacy, token: null }));
+            }
+            return { ...legacy, token };
+          }
         }
       }
     }
@@ -79,11 +89,13 @@ async function savePersistedData(data: { token: string | null; user: AuthUser | 
     } else {
       const storageFile = getAuthStorageFile();
       if (storageFile) {
-        await FileSystem.writeAsStringAsync(storageFile, serialized);
+        if (data.token) await SecureStore.setItemAsync('ocs_mobile_token', data.token);
+        else await SecureStore.deleteItemAsync('ocs_mobile_token');
+        await FileSystem.writeAsStringAsync(storageFile, JSON.stringify({ ...data, token: null }));
       }
     }
   } catch (err) {
-    console.warn('[AuthStore] Failed to save persisted auth:', err);
+    throw new Error('Unable to securely save your session. Please try again.');
   }
 }
 
@@ -157,6 +169,23 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   login: async (email: string, password: string, customApiUrl?: string) => {
     set({ isLoading: true, authError: null });
     const rawBase = (customApiUrl && customApiUrl.trim()) ? customApiUrl.trim() : DEFAULT_API_BASE;
+    if (!rawBase) {
+      const error = 'Authentication server is not configured.';
+      set({ isLoading: false, authError: error });
+      return { success: false, error };
+    }
+    let parsedBase: URL;
+    try { parsedBase = new URL(rawBase); }
+    catch (_) {
+      const error = 'Authentication server URL is invalid.';
+      set({ isLoading: false, authError: error });
+      return { success: false, error };
+    }
+    if (!['https:', 'http:'].includes(parsedBase.protocol) || (parsedBase.protocol !== 'https:' && !__DEV__)) {
+      const error = 'Authentication requires an HTTPS server.';
+      set({ isLoading: false, authError: error });
+      return { success: false, error };
+    }
     const cleanBase = rawBase.replace(/\/api\/?$/, '').replace(/\/$/, '');
     const endpoint = `${cleanBase}/api/auth/login`;
 
@@ -166,6 +195,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         const savedId = localStorage.getItem('ocs_mobile_device_id');
         if (savedId) deviceId = savedId;
         else localStorage.setItem('ocs_mobile_device_id', deviceId);
+      } else if (Platform.OS !== 'web') {
+        const savedId = await SecureStore.getItemAsync('ocs_mobile_device_id');
+        if (savedId) deviceId = savedId;
+        else await SecureStore.setItemAsync('ocs_mobile_device_id', deviceId);
       }
     } catch (_) {}
 
@@ -223,13 +256,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       }
 
       const token = data.token;
-      const user = data.user || data.data?.user || {
-        id: data.userId || '1',
-        name: data.name || email.split('@')[0],
-        email: email.trim(),
-        churchName: data.churchName,
-        subscriptionTier: data.tier || 'trial',
-      };
+      const user = data.user || data.data?.user;
+      if (typeof token !== 'string' || !token || !user || typeof user.id !== 'string' || typeof user.email !== 'string') {
+        throw new Error('Authentication server returned an invalid session.');
+      }
 
       const guestStartedAt = get().guestStartedAt;
 
